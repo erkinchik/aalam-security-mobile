@@ -1,6 +1,7 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { CircleCheck } from "lucide-react-native";
 import { AdminStackParamList } from "../../navigation/types";
 import { ActionButton } from "../../components/ui/ActionButton";
@@ -12,7 +13,7 @@ type Props = NativeStackScreenProps<AdminStackParamList, "AdminCreateOperatorSuc
 export const AdminCreateOperatorSuccessScreen = ({ navigation }: Props) => {
   const { tokens } = useAppTheme();
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.content}>
         <View style={[styles.iconWrap, { backgroundColor: "#DCFCE7" }]}>
           <CircleCheck size={40} color="#166534" strokeWidth={2} />

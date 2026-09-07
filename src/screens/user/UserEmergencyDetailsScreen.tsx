@@ -1,6 +1,7 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Linking, ScrollView, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { UserStackParamList } from "../../navigation/types";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { emergencyApi } from "../../api/modules/emergency";
@@ -56,7 +57,7 @@ export const UserEmergencyDetailsScreen = ({ route }: Props) => {
 
   if (!item) {
     return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+      <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
         <View style={styles.center}>
           <Text style={[styles.notFound, { color: tokens.colors.onSurfaceMuted }]}>
             {ru.emergencyDetails.notFound}

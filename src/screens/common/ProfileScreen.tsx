@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../../stores/authStore";
 import { AppCard } from "../../components/ui/AppCard";
 import { ActionButton } from "../../components/ui/ActionButton";
@@ -26,7 +27,7 @@ export const ProfileScreen = () => {
   const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "—";
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.content}>
         {/* Avatar header */}
         <View style={styles.avatarSection}>

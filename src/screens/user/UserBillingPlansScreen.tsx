@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { UserStackParamList } from "../../navigation/types";
 import { useAppTheme } from "../../theme";
@@ -53,7 +54,7 @@ export const UserBillingPlansScreen = ({ navigation }: Props) => {
   );
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}

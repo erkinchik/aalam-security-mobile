@@ -1,6 +1,7 @@
 import React from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { OperatorStackParamList } from "../../navigation/types";
 import { useOperatorStore } from "../../stores/operatorStore";
 import { dispatchApi } from "../../api/modules/dispatch";
@@ -60,7 +61,7 @@ export const OperatorSessionDetailsScreen = ({ route, navigation }: Props) => {
 
   if (!session) {
     return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+      <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
         <View style={styles.center}>
           <Text style={[styles.emptyText, { color: tokens.colors.onSurfaceMuted }]}>
             {ru.operatorScreens.noSessionSelected}

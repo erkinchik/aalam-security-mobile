@@ -1,5 +1,6 @@
 import React, { PropsWithChildren } from "react";
-import { SafeAreaView, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppTheme } from "../../theme";
 
 export const ScreenContainer = ({ children }: PropsWithChildren) => {

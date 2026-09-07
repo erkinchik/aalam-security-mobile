@@ -1,5 +1,6 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusStateCard } from "../../components/state/StatusStateCard";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
@@ -7,7 +8,7 @@ import { ru } from "../../locale/ru";
 export const NetworkOfflineScreen = () => {
   const { tokens } = useAppTheme();
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.content}>
         <StatusStateCard
           badge={ru.system.offlineBadge}

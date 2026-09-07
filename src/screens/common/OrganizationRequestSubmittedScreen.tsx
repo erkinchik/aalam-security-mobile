@@ -1,5 +1,6 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { CommonStackParamList, RootStackParamList } from "../../navigation/types";
 import { ActionButton } from "../../components/ui/ActionButton";
@@ -18,7 +19,7 @@ export const OrganizationRequestSubmittedScreen = ({ navigation }: Props) => {
   };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.content}>
         <View style={styles.successIconWrap}>
           <Text style={styles.successIcon}>✓</Text>

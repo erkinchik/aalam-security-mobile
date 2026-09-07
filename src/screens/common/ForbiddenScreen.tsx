@@ -1,5 +1,6 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../../stores/authStore";
 import { StatusStateCard } from "../../components/state/StatusStateCard";
 import { useAppTheme } from "../../theme";
@@ -9,7 +10,7 @@ export const ForbiddenScreen = () => {
   const { tokens } = useAppTheme();
   const logout = useAuthStore((state) => state.logout);
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.container}>
         <StatusStateCard
           badge={ru.system.forbiddenBadge}

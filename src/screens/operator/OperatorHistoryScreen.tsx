@@ -1,5 +1,6 @@
 import React from "react";
-import { FlatList, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { FlatList, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { dispatchApi } from "../../api/modules/dispatch";
 import { SkeletonList } from "../../components/state/SkeletonList";
