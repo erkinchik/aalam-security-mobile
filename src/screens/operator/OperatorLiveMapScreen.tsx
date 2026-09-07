@@ -1,14 +1,15 @@
 import React from "react";
-import { Platform, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { MapPin } from "lucide-react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker } from "react-native-maps";
+import { HAS_MAP_SUPPORT, MAP_PROVIDER } from "../../components/maps/mapProvider";
 import { useOperatorStore } from "../../stores/operatorStore";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { OperatorStackParamList } from "../../navigation/types";
 import { useAppTheme } from "../../theme";
-import { ENV } from "../../config/env";
 import { ru } from "../../locale/ru";
 
 type Props = NativeStackScreenProps<OperatorStackParamList, "OperatorLiveMap">;
@@ -16,7 +17,7 @@ type Props = NativeStackScreenProps<OperatorStackParamList, "OperatorLiveMap">;
 export const OperatorLiveMapScreen = ({ route }: Props) => {
   const { tokens } = useAppTheme();
   const sessionId = route.params.sessionId;
-  const hasMapKey = Platform.OS === "ios" ? Boolean(ENV.mapsApiKeyIos) : Boolean(ENV.mapsApiKeyAndroid);
+  const hasMapKey = HAS_MAP_SUPPORT;
   const liveLocationsBySessionId = useOperatorStore((state) => state.liveLocationsBySessionId);
   const activeSessionsById = useOperatorStore((state) => state.activeSessionsById);
   const selectedSession = useOperatorStore((state) => state.selectedSession);
@@ -53,7 +54,7 @@ export const OperatorLiveMapScreen = ({ route }: Props) => {
 
   if (!hasMapKey) {
     return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+      <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
         <View style={styles.center}>
           <Text style={[styles.errorTitle, { color: tokens.colors.danger }]}>
             {ru.operatorScreens.mapNotConfigured}
@@ -120,7 +121,7 @@ export const OperatorLiveMapScreen = ({ route }: Props) => {
 
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={styles.map}
         onMapReady={() => {
           setIsMapReady(true);

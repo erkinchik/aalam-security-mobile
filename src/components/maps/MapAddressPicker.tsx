@@ -7,7 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker } from "react-native-maps";
+import { HAS_MAP_SUPPORT, MAP_PROVIDER } from "./mapProvider";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { MapPin } from "lucide-react-native";
@@ -54,7 +55,7 @@ type Props = {
 export function MapAddressPicker({ address, latitude, longitude, onChange, error }: Props) {
   const { tokens } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const hasMapKey = Platform.OS === "ios" ? Boolean(ENV.mapsApiKeyIos) : Boolean(ENV.mapsApiKeyAndroid);
+  const hasMapKey = HAS_MAP_SUPPORT;
 
   const [mapOpen, setMapOpen] = useState(false);
   const [draft, setDraft] = useState({
@@ -298,7 +299,7 @@ export function MapAddressPicker({ address, latitude, longitude, onChange, error
             ) : (
               <MapView
                 ref={mapRef}
-                provider={hasMapKey ? PROVIDER_GOOGLE : undefined}
+                provider={MAP_PROVIDER}
                 style={StyleSheet.absoluteFill}
                 showsUserLocation={showUserLocation}
                 showsMyLocationButton={false}

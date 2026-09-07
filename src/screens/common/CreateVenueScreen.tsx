@@ -14,7 +14,8 @@ import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker } from "react-native-maps";
+import { HAS_MAP_SUPPORT, MAP_PROVIDER } from "../../components/maps/mapProvider";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { MapPin } from "lucide-react-native";
@@ -94,7 +95,7 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
   const { organizationId, organizationName } = route.params;
   const queryClient = useQueryClient();
   const schema = React.useMemo(() => buildSchema(), []);
-  const hasMapKey = Platform.OS === "ios" ? Boolean(ENV.mapsApiKeyIos) : Boolean(ENV.mapsApiKeyAndroid);
+  const hasMapKey = HAS_MAP_SUPPORT;
 
   const {
     control,
@@ -554,7 +555,7 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
             ) : (
               <MapView
                 ref={mapRef}
-                provider={hasMapKey ? PROVIDER_GOOGLE : undefined}
+                provider={MAP_PROVIDER}
                 style={StyleSheet.absoluteFill}
                 showsUserLocation={showUserLocation}
                 showsMyLocationButton={false}
