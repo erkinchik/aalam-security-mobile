@@ -1,83 +1,32 @@
 import React from "react";
-import { useEffect } from "react";
 import * as Location from "expo-location";
 import { CompositeScreenProps } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import {
-  FlatList,
-  ListRenderItemInfo,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { OperatorStackParamList, OperatorTabParamList, RootStackParamList } from "../../navigation/types";
-import { useOperatorStore } from "../../stores/operatorStore";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import MapView, { Marker } from "react-native-maps";
+import { Crosshair, LogOut } from "lucide-react-native";
+import { OperatorStackParamList, OperatorTabParamList } from "../../navigation/types";
+import { selectCurrentOffer, useOperatorStore } from "../../stores/operatorStore";
+import { useOperatorShift } from "../../hooks/useOperatorShift";
+import { useAcceptSession } from "../../hooks/useAcceptSession";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { dispatchApi } from "../../api/modules/dispatch";
-import { OperatorHeartbeatStatusScreen } from "./OperatorHeartbeatStatusScreen";
-import { SkeletonList } from "../../components/state/SkeletonList";
+import { OfferCard } from "../../components/operator/OfferCard";
+import { ActiveCallCard } from "../../components/operator/ActiveCallCard";
+import { HAS_MAP_SUPPORT, MAP_PROVIDER } from "../../components/maps/mapProvider";
 import { ErrorState } from "../../components/state/ErrorState";
-import { EmptyState } from "../../components/state/EmptyState";
-import { StatusChip } from "../../components/ui/StatusChip";
-import { ActionButton } from "../../components/ui/ActionButton";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useAppTheme } from "../../theme";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { EmergencySession } from "../../types/emergency";
 import { toastBus } from "../../ui/feedback/toastBus";
-import { useWebsocketStore } from "../../stores/websocketStore";
-import { ENV } from "../../config/env";
+import { handleApiError } from "../../utils/error/handleApiError";
 import { ru } from "../../locale/ru";
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<OperatorTabParamList, "Dashboard">,
   NativeStackScreenProps<OperatorStackParamList>
 >;
-type MarkerItem = { session: EmergencySession; latitude: number; longitude: number };
-
-interface SessionListItemProps {
-  item: EmergencySession;
-  tokens: ReturnType<typeof useAppTheme>["tokens"];
-  highlighted: boolean;
-  onFocus: (session: EmergencySession) => void;
-  onDetails: (session: EmergencySession) => void;
-  onLiveMap: (session: EmergencySession) => void;
-}
-
-const SessionListItem = React.memo(
-  ({ item, tokens, highlighted, onFocus, onDetails, onLiveMap }: SessionListItemProps) => (
-    <Pressable
-      onPress={() => onFocus(item)}
-      style={[
-        styles.sessionCard,
-        {
-          backgroundColor: highlighted ? tokens.colors.primary + "10" : tokens.colors.surface,
-          borderColor: highlighted ? tokens.colors.primary : tokens.colors.border,
-        },
-      ]}
-    >
-      <View style={styles.cardTop}>
-        <StatusChip status={item.status} />
-        <Text style={[styles.cardTime, { color: tokens.colors.onSurfaceMuted }]}>
-          {new Date(item.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-        </Text>
-      </View>
-      <Text style={[styles.cardEmail, { color: tokens.colors.onSurface }]} numberOfLines={1}>
-        {item.user?.email ?? ru.operatorScreens.unknownUser}
-      </Text>
-      <View style={styles.cardActions}>
-        <ActionButton variant="secondary" size="small" label={ru.operatorScreens.details} onPress={() => onDetails(item)} />
-        <ActionButton variant="secondary" size="small" label={ru.operatorScreens.liveMapShort} onPress={() => onLiveMap(item)} />
-      </View>
-    </Pressable>
-  ),
-);
-SessionListItem.displayName = "SessionListItem";
 
 const DEFAULT_REGION = {
   latitude: 42.8746,
@@ -86,131 +35,149 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.15,
 };
 
+const coordsOf = (session: EmergencySession) => {
+  const last = session.locations?.[session.locations.length - 1];
+  if (last) return { latitude: last.latitude, longitude: last.longitude };
+  const venue = session.venue;
+  if (venue?.latitude != null && venue?.longitude != null) {
+    return { latitude: venue.latitude, longitude: venue.longitude };
+  }
+  return null;
+};
+
 export const OperatorDashboardScreen = ({ navigation }: Props) => {
-  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { tokens } = useAppTheme();
+  // Карта занимает весь экран, а оверлеи позиционированы абсолютно — SafeAreaView
+  // им не помогает, отступы под статус-бар и системную навигацию считаем сами.
+  const insets = useSafeAreaInsets();
   const mapRef = React.useRef<MapView | null>(null);
-  const listRef = React.useRef<FlatList<EmergencySession> | null>(null);
-  const prevLastEventAt = React.useRef<string | null>(null);
-  const setSelectedSession = useOperatorStore((state) => state.setSelectedSession);
-  const selectedSession = useOperatorStore((state) => state.selectedSession);
-  const highlightedSessionId = useOperatorStore((state) => state.highlightedSessionId);
-  const setHighlightedSessionId = useOperatorStore((state) => state.setHighlightedSessionId);
+
+  const { shiftStartedAt, toggleShift, isToggling } = useOperatorShift();
+  const { accept, acceptingId } = useAcceptSession();
+  const offer = useOperatorStore(selectCurrentOffer);
+  const skipOffer = useOperatorStore((state) => state.skipOffer);
+  const syncPoolSession = useOperatorStore((state) => state.syncPoolSession);
   const activeSessionsById = useOperatorStore((state) => state.activeSessionsById);
   const liveLocationsBySessionId = useOperatorStore((state) => state.liveLocationsBySessionId);
   const upsertActiveSession = useOperatorStore((state) => state.upsertActiveSession);
-  const lastEventAt = useWebsocketStore((state) => state.lastEventAt);
-  const query = usePaginatedList({
+  const setSelectedSession = useOperatorStore((state) => state.setSelectedSession);
+
+  const [operatorLocation, setOperatorLocation] = React.useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [isStarting, setIsStarting] = React.useState(false);
+
+  // Пул и свои вызовы подтягиваются один раз при открытии; дальше их ведёт сокет.
+  const poolQuery = usePaginatedList({
+    queryKey: ["operator-pool"],
+    limit: 20,
+    fetcher: dispatchApi.pool,
+  });
+  const activeQuery = usePaginatedList({
     queryKey: ["operator-active"],
     limit: 20,
     fetcher: dispatchApi.active,
   });
-  const [isPanelExpanded, setIsPanelExpanded] = React.useState(true);
-  const [operatorLocation, setOperatorLocation] = React.useState<{ latitude: number; longitude: number } | null>(null);
-  const hasMapKey = Platform.OS === "ios" ? Boolean(ENV.mapsApiKeyIos) : Boolean(ENV.mapsApiKeyAndroid);
 
-  useEffect(() => {
+  const restPool = React.useMemo(
+    () => poolQuery.data?.pages.flatMap((p) => p.data) ?? [],
+    [poolQuery.data],
+  );
+  React.useEffect(() => {
+    restPool.forEach(syncPoolSession);
+  }, [restPool, syncPoolSession]);
+
+  const restActive = React.useMemo(
+    () => activeQuery.data?.pages.flatMap((p) => p.data) ?? [],
+    [activeQuery.data],
+  );
+  React.useEffect(() => {
+    restActive.forEach(upsertActiveSession);
+  }, [restActive, upsertActiveSession]);
+
+  React.useEffect(() => {
     let cancelled = false;
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (cancelled || status !== "granted") return;
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-        mayShowUserSettingsDialog: true,
       });
-      if (!cancelled) setOperatorLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      if (!cancelled) {
+        setOperatorLocation({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        });
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const restData = React.useMemo(() => query.data?.pages.flatMap((p) => p.data) ?? [], [query.data]);
+  /** Оператор ведёт один вызов за раз — берём самый свежий незакрытый. */
+  const activeCall = React.useMemo(() => {
+    const list = Object.values(activeSessionsById).filter((s) => s.status !== "CLOSED");
+    if (list.length === 0) return null;
+    return list.reduce((newest, s) =>
+      new Date(s.createdAt).getTime() > new Date(newest.createdAt).getTime() ? s : newest,
+    );
+  }, [activeSessionsById]);
+
+  // На карте только то, что относится к оператору: активный вызов и предложение.
+  const markers = React.useMemo(() => {
+    const items: Array<{ session: EmergencySession; latitude: number; longitude: number }> = [];
+    for (const session of [activeCall, offer]) {
+      if (!session) continue;
+      const live = liveLocationsBySessionId[session.id];
+      const point = live ?? coordsOf(session);
+      if (point) items.push({ session, ...point });
+    }
+    return items;
+  }, [activeCall, offer, liveLocationsBySessionId]);
+
+  const focusTarget = markers[0];
   React.useEffect(() => {
-    restData.forEach((session) => upsertActiveSession(session));
-  }, [restData, upsertActiveSession]);
-
-  const socketData = React.useMemo(() => Object.values(activeSessionsById), [activeSessionsById]);
-  const data = React.useMemo(
-    () => (socketData.length ? socketData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : restData),
-    [restData, socketData],
-  );
-
-  const markerItems = React.useMemo<MarkerItem[]>(
-    () =>
-      data
-        .map((session) => {
-          const live = liveLocationsBySessionId[session.id];
-          const fallback = session.locations?.[session.locations.length - 1];
-          const loc = live ?? fallback;
-          if (!loc) return null;
-          return { session, latitude: loc.latitude, longitude: loc.longitude };
-        })
-        .filter((item): item is MarkerItem => item !== null),
-    [data, liveLocationsBySessionId],
-  );
-
-  React.useEffect(() => {
-    if (!lastEventAt || lastEventAt === prevLastEventAt.current) return;
-    prevLastEventAt.current = lastEventAt;
-    toastBus.show({ message: ru.operator.queueUpdated, severity: "info", duration: 1400 });
-  }, [lastEventAt]);
-
-  const focusSession = React.useCallback(
-    (session: EmergencySession) => {
-      setSelectedSession(session);
-      setHighlightedSessionId(session.id);
-      const idx = data.findIndex((item) => item.id === session.id);
-      if (idx >= 0) listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.4 });
-      const marker = markerItems.find((m) => m.session.id === session.id);
-      if (marker) {
-        mapRef.current?.animateToRegion(
-          { latitude: marker.latitude, longitude: marker.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 },
-          350,
-        );
-      }
-    },
-    [data, markerItems, setHighlightedSessionId, setSelectedSession],
-  );
-
-  const fitAll = React.useCallback(() => {
-    const coords = markerItems.map((m) => ({ latitude: m.latitude, longitude: m.longitude }));
-    if (operatorLocation) coords.push(operatorLocation);
-    if (coords.length === 0) return;
-    mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 130, right: 48, bottom: 240, left: 48 },
-      animated: true,
-    });
-  }, [markerItems, operatorLocation]);
+    if (!focusTarget) return;
+    mapRef.current?.animateToRegion(
+      {
+        latitude: focusTarget.latitude,
+        longitude: focusTarget.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      },
+      400,
+    );
+  }, [focusTarget?.latitude, focusTarget?.longitude]);
 
   const centerOnMe = React.useCallback(() => {
-    if (operatorLocation) {
-      mapRef.current?.animateToRegion(
-        { ...operatorLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 },
-        350,
-      );
-    }
+    if (!operatorLocation) return;
+    mapRef.current?.animateToRegion(
+      { ...operatorLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+      350,
+    );
   }, [operatorLocation]);
 
-  const centerSelected = React.useCallback(() => {
-    if (selectedSession) { focusSession(selectedSession); return; }
-    if (operatorLocation) { centerOnMe(); return; }
-    if (markerItems[0]) {
-      mapRef.current?.animateToRegion(
-        { latitude: markerItems[0].latitude, longitude: markerItems[0].longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 },
-        350,
-      );
+  const onStartProgress = React.useCallback(async () => {
+    if (!activeCall) return;
+    setIsStarting(true);
+    try {
+      const updated = await dispatchApi.startProgress(activeCall.id);
+      upsertActiveSession(updated);
+      toastBus.show({ message: ru.operator.updated, severity: "success" });
+    } catch (error) {
+      const { status, message } = handleApiError(error);
+      toastBus.show({
+        message: status === 409 ? ru.operator.sessionConflict : message,
+        severity: "error",
+      });
+    } finally {
+      setIsStarting(false);
     }
-  }, [focusSession, markerItems, selectedSession, operatorLocation, centerOnMe]);
+  }, [activeCall, upsertActiveSession]);
 
-  const markerColor = React.useCallback(
-    (status: EmergencySession["status"]) => {
-      if (status === "NEW") return tokens.status.NEW.border;
-      if (status === "ASSIGNED") return tokens.status.ASSIGNED.border;
-      return tokens.status.IN_PROGRESS.border;
-    },
-    [tokens.status],
-  );
-
-  const onOpenDetails = React.useCallback(
+  const openDetails = React.useCallback(
     (session: EmergencySession) => {
       setSelectedSession(session);
       navigation.navigate("OperatorSessionDetails", { sessionId: session.id });
@@ -218,228 +185,171 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     [navigation, setSelectedSession],
   );
 
-  const onOpenLiveMap = React.useCallback(
-    (session: EmergencySession) => {
-      setSelectedSession(session);
-      navigation.navigate("OperatorLiveMap", { sessionId: session.id });
-    },
-    [navigation, setSelectedSession],
-  );
-
-  const renderSessionItem = React.useCallback(
-    ({ item }: ListRenderItemInfo<EmergencySession>) => (
-      <SessionListItem
-        item={item}
-        tokens={tokens}
-        highlighted={highlightedSessionId === item.id}
-        onFocus={focusSession}
-        onDetails={onOpenDetails}
-        onLiveMap={onOpenLiveMap}
-      />
-    ),
-    [focusSession, highlightedSessionId, onOpenDetails, onOpenLiveMap, tokens],
-  );
-
-  if (query.isLoading) {
-    return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
-        <View style={styles.fullscreen}>
-          <MapView provider={PROVIDER_GOOGLE} style={StyleSheet.absoluteFill} initialRegion={DEFAULT_REGION} />
-          <View style={styles.loadingOverlay}>
-            <SkeletonList count={3} />
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (query.isError) {
-    return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
-        <View style={styles.fullscreen}>
-          <MapView provider={PROVIDER_GOOGLE} style={StyleSheet.absoluteFill} initialRegion={DEFAULT_REGION} />
-          <View style={styles.errorOverlay}>
-            <ErrorState
-              title={ru.operatorScreens.loadSessionsFail}
-              message={ru.operatorScreens.loadSessionsMsg}
-              retryLabel={ru.operatorScreens.reloadQueue}
-              onRetry={() => void query.refetch()}
-            />
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const shiftSince = shiftStartedAt
+    ? new Date(shiftStartedAt).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
-      <View style={styles.fullscreen}>
-        {/* No-map warning */}
-        {!hasMapKey ? (
-          <View style={[styles.errorOverlay, { backgroundColor: tokens.colors.background }]}>
-            <ErrorState
-              title={ru.operatorScreens.mapNotConfigured}
-              message={ru.operatorScreens.mapKeyHint}
-            />
-          </View>
-        ) : null}
-
+    <View style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+      {HAS_MAP_SUPPORT ? (
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+          provider={MAP_PROVIDER}
           style={StyleSheet.absoluteFill}
-          pointerEvents={hasMapKey ? "auto" : "none"}
-          showsUserLocation={!!operatorLocation}
+          showsUserLocation={Boolean(operatorLocation)}
           initialRegion={
-            markerItems[0]
-              ? { latitude: markerItems[0].latitude, longitude: markerItems[0].longitude, latitudeDelta: 0.08, longitudeDelta: 0.08 }
-              : operatorLocation
-                ? { ...operatorLocation, latitudeDelta: 0.05, longitudeDelta: 0.05 }
-                : DEFAULT_REGION
+            operatorLocation
+              ? { ...operatorLocation, latitudeDelta: 0.05, longitudeDelta: 0.05 }
+              : DEFAULT_REGION
           }
         >
-          {markerItems.map((item) => (
+          {markers.map((m) => (
             <Marker
-              key={item.session.id}
-              coordinate={{ latitude: item.latitude, longitude: item.longitude }}
-              pinColor={markerColor(item.session.status)}
-              title={item.session.user?.email ?? ru.operatorScreens.markerEmergency}
-              description={`${item.session.status} • ${new Date(item.session.createdAt).toLocaleTimeString()}`}
-              onPress={() => focusSession(item.session)}
+              key={m.session.id}
+              coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+              pinColor={
+                m.session.id === offer?.id
+                  ? tokens.status.NEW.border
+                  : tokens.status.IN_PROGRESS.border
+              }
+              title={m.session.venue?.name ?? ru.operatorScreens.markerEmergency}
+              onPress={() => openDetails(m.session)}
             />
           ))}
         </MapView>
-
-        {/* Top overlay */}
-        <View style={styles.topBar}>
-          <View
-            style={[styles.topCard, { backgroundColor: tokens.colors.surface + "F0", borderColor: tokens.colors.border }]}
-          >
-            <View style={styles.topCardRow}>
-              <Text style={[styles.mapTitle, { color: tokens.colors.onSurface }]}>Operator Map</Text>
-              <OperatorHeartbeatStatusScreen />
-            </View>
-            <View style={styles.topActions}>
-              <ActionButton variant="secondary" size="small" label={ru.operatorScreens.me} onPress={centerOnMe} disabled={!operatorLocation} />
-              <ActionButton variant="secondary" size="small" label={ru.operatorScreens.center} onPress={centerSelected} />
-              <ActionButton variant="secondary" size="small" label={ru.operatorScreens.fitAll} onPress={fitAll} />
-              <ActionButton variant="secondary" size="small" label={ru.operatorScreens.history} onPress={() => navigation.navigate("History")} />
-              <ActionButton
-                variant="ghost"
-                size="small"
-                label={ru.operatorScreens.profile}
-                onPress={() => rootNavigation.navigate("Common", { screen: "Profile" })}
-              />
-            </View>
-          </View>
+      ) : (
+        <View style={styles.mapFallback}>
+          <ErrorState
+            title={ru.operatorScreens.mapNotConfigured}
+            message={ru.operatorScreens.mapKeyHint}
+          />
         </View>
+      )}
 
-        {/* Bottom panel */}
+      {/* Статус смены — единственный постоянный элемент поверх карты. */}
+      <View style={[styles.topBar, { top: insets.top + 12 }]} pointerEvents="box-none">
         <View
           style={[
-            styles.bottomPanel,
-            { backgroundColor: tokens.colors.surface + "F5", borderColor: tokens.colors.border },
-            !isPanelExpanded && styles.bottomPanelCollapsed,
+            styles.shiftPill,
+            { backgroundColor: tokens.colors.surface + "F2", borderColor: tokens.colors.border },
           ]}
         >
+          <View style={[styles.dot, { backgroundColor: tokens.colors.success }]} />
+          <Text style={[styles.shiftText, { color: tokens.colors.onSurface }]}>
+            {shiftSince
+              ? `${ru.operatorShift.onShift} · ${shiftSince}`
+              : ru.operatorShift.onShift}
+          </Text>
           <Pressable
-            onPress={() => setIsPanelExpanded((v) => !v)}
-            style={styles.panelHandle}
+            onPress={toggleShift}
+            disabled={isToggling}
+            hitSlop={10}
             accessibilityRole="button"
-            accessibilityLabel={ru.operatorScreens.togglePanelA11y}
+            accessibilityLabel={ru.operatorShift.endShiftA11y}
+            style={styles.endShift}
           >
-            <View style={[styles.handleBar, { backgroundColor: tokens.colors.border }]} />
-            <Text style={[styles.panelTitle, { color: tokens.colors.onSurface }]}>
-              Active incidents ({data.length})
-            </Text>
-            <Text style={[styles.panelToggle, { color: tokens.colors.primary }]}>
-              {isPanelExpanded ? ru.operatorScreens.panelHide : ru.operatorScreens.panelShow}
-            </Text>
+            <LogOut size={18} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
           </Pressable>
-
-          {isPanelExpanded ? (
-            data.length > 0 ? (
-              <FlatList
-                ref={listRef}
-                data={data}
-                keyExtractor={(item) => item.id}
-                renderItem={renderSessionItem}
-                style={styles.list}
-                contentContainerStyle={styles.listContent}
-                getItemLayout={(_, index) => ({ length: 130, offset: 130 * index, index })}
-                removeClippedSubviews
-                initialNumToRender={6}
-                maxToRenderPerBatch={8}
-                windowSize={7}
-              />
-            ) : (
-              <EmptyState
-                title={ru.operatorScreens.noActiveTitle}
-                subtitle={ru.operatorScreens.noActiveSub}
-              />
-            )
-          ) : null}
         </View>
+
+        <Pressable
+          onPress={centerOnMe}
+          disabled={!operatorLocation}
+          accessibilityRole="button"
+          accessibilityLabel={ru.operatorScreens.me}
+          style={[
+            styles.fab,
+            {
+              backgroundColor: tokens.colors.surface + "F2",
+              borderColor: tokens.colors.border,
+              opacity: operatorLocation ? 1 : 0.5,
+            },
+          ]}
+        >
+          <Crosshair size={20} color={tokens.colors.onSurface} strokeWidth={2} />
+        </Pressable>
       </View>
-    </SafeAreaView>
+
+      <View style={[styles.bottom, { bottom: insets.bottom + 12 }]} pointerEvents="box-none">
+        {activeCall ? (
+          <ActiveCallCard
+            session={activeCall}
+            isStarting={isStarting}
+            onStartProgress={() => void onStartProgress()}
+            onResolve={() =>
+              navigation.navigate("OperatorResolveModal", { sessionId: activeCall.id })
+            }
+            onDetails={() => openDetails(activeCall)}
+          />
+        ) : null}
+
+        {offer ? (
+          <OfferCard
+            session={offer}
+            isAccepting={acceptingId === offer.id}
+            onAccept={() => void accept(offer.id)}
+            onDismiss={() => skipOffer(offer.id)}
+          />
+        ) : !activeCall ? (
+          <View
+            style={[
+              styles.idle,
+              { backgroundColor: tokens.colors.surface + "F2", borderColor: tokens.colors.border },
+            ]}
+          >
+            <Text style={[styles.idleText, { color: tokens.colors.onSurfaceMuted }]}>
+              {ru.operatorPool.waitingForCalls}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  fullscreen: { flex: 1 },
-  loadingOverlay: { position: "absolute", top: 100, left: 0, right: 0 },
-  errorOverlay: { position: "absolute", top: 100, left: 12, right: 12 },
-  topBar: { position: "absolute", top: 10, left: 10, right: 10 },
-  topCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    gap: 8,
-  },
-  topCardRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  mapTitle: { fontSize: 17, fontWeight: "800" },
-  topActions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  bottomPanel: {
+  mapFallback: { ...StyleSheet.absoluteFillObject, justifyContent: "center", padding: 16 },
+  topBar: {
     position: "absolute",
-    left: 8,
-    right: 8,
-    bottom: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 12,
-    maxHeight: "48%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  bottomPanelCollapsed: { maxHeight: 60, overflow: "hidden" },
-  panelHandle: {
+    left: 12,
+    right: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingBottom: 8,
+    gap: 8,
   },
-  handleBar: { width: 32, height: 4, borderRadius: 99 },
-  panelTitle: { flex: 1, marginLeft: 8, fontSize: 15, fontWeight: "700" },
-  panelToggle: { fontSize: 13, fontWeight: "700" },
-  list: { marginTop: 4 },
-  listContent: { gap: 8, paddingBottom: 8 },
-  sessionCard: {
-    borderRadius: 14,
+  shiftPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 8,
+    height: 40,
+    borderRadius: 999,
     borderWidth: 1,
-    padding: 12,
-    gap: 6,
   },
-  cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardTime: { fontSize: 12 },
-  cardEmail: { fontSize: 14, fontWeight: "600" },
-  cardActions: { flexDirection: "row", gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 999 },
+  shiftText: { fontSize: 13, fontWeight: "700" },
+  endShift: { padding: 4 },
+  fab: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bottom: { position: "absolute", left: 12, right: 12, gap: 10 },
+  idle: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  idleText: { fontSize: 13, fontWeight: "600" },
 });

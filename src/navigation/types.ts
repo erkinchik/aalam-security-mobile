@@ -48,7 +48,8 @@ export type OperatorTabParamList = {
 };
 
 export type OperatorStackParamList = {
-  OperatorTabs: undefined;
+  OperatorShiftGate: undefined;
+  OperatorTabs: NavigatorScreenParams<OperatorTabParamList> | undefined;
   OperatorSessionDetails: { sessionId: string };
   OperatorLiveMap: { sessionId: string };
   OperatorResolveModal: { sessionId: string };
@@ -70,7 +71,7 @@ export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList> | undefined;
   Common: NavigatorScreenParams<CommonStackParamList> | undefined;
   User: NavigatorScreenParams<UserStackParamList> | undefined;
-  Operator: undefined;
+  Operator: NavigatorScreenParams<OperatorStackParamList> | undefined;
   Admin: undefined;
 };
 

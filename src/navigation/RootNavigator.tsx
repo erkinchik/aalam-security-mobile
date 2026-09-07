@@ -9,6 +9,7 @@ import { UserStack } from "./stacks/UserStack";
 import { OperatorStack } from "./stacks/OperatorStack";
 import { AdminStack } from "./stacks/AdminStack";
 import { AuthGuard } from "./guards/AuthGuard";
+import { navigationRef } from "./navigationRef";
 import { SplashScreen } from "../screens/common/SplashScreen";
 import { AuthLoadingScreen } from "../screens/common/AuthLoadingScreen";
 import { oledDarkTokens } from "../theme/tokens";
@@ -40,7 +41,7 @@ export const RootNavigator = () => {
     isBootstrapped && isAuthenticated && user ? roleToRootScreen[user.role] : "Splash";
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer theme={navigationTheme} ref={navigationRef}>
       <Stack.Navigator
         key={isAuthenticated ? `auth-${user?.role ?? "none"}` : "guest"}
         initialRouteName={initialRouteName}

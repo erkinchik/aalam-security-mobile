@@ -5,6 +5,7 @@ import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { useAuthStore } from "../stores/authStore";
 import { usersApi } from "../api/modules/users";
+import { navigateToOperatorHome } from "../navigation/navigationRef";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -69,4 +70,25 @@ export const usePushNotifications = () => {
       cancelled = true;
     };
   }, [isAuthenticated, role, accessToken]);
+
+  // Тап по push-уведомлению открывает экран входящего вызова. Без этого пуш
+  // ничего не даёт: оператор видит баннер, но нажать на него некуда.
+  useEffect(() => {
+    if (!isAuthenticated || role !== "OPERATOR") return;
+
+    const openFromResponse = (response: Notifications.NotificationResponse | null) => {
+      const data = response?.notification.request.content.data as
+        | { type?: string; sessionId?: string }
+        | undefined;
+      if (data?.type !== "emergency:new") return;
+      navigateToOperatorHome();
+    };
+
+    // Холодный старт: приложение подняли тапом по уведомлению.
+    void Notifications.getLastNotificationResponseAsync().then(openFromResponse);
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener(openFromResponse);
+
+    return () => subscription.remove();
+  }, [isAuthenticated, role]);
 };
