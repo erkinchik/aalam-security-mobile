@@ -1,0 +1,64 @@
+name: Build & submit to Google Play
+
+# Триггер тот же, что у TestFlight — push тега vX.Y.Z собирает оба билда
+# параллельно. Через workflow_dispatch можно собрать ad-hoc.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - preview
+      submit:
+        description: "Auto-submit to Google Play"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  build:
+    name: Build Android + submit to Google Play
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (and optionally submit)
+        env:
+          # Тег по умолчанию идёт в production + автосабмит. workflow_dispatch
+          # даёт override (например, preview-сборка без сабмита).
+          PROFILE: ${{ inputs.profile || 'production' }}
+          SUBMIT: ${{ inputs.submit || 'true' }}
+        run: |
+          AUTO_SUBMIT=""
+          if [ "$SUBMIT" = "true" ]; then
+            AUTO_SUBMIT="--auto-submit"
+          fi
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            $AUTO_SUBMIT

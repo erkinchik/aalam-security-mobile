@@ -13,6 +13,7 @@ web-build/
 .env
 .env.*
 !.env.example
+google-service-account*.json
 
 # iOS
 ios/Pods/
