@@ -1,5 +1,7 @@
 import React from "react";
 import * as Location from "expo-location";
+import * as Haptics from "expo-haptics";
+import { useQueryClient } from "@tanstack/react-query";
 import { CompositeScreenProps, useNavigation } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -49,9 +51,18 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   const { accept, acceptingId } = useAcceptSession();
   const offer = useOperatorStore(selectCurrentOffer);
   const skipOffer = useOperatorStore((state) => state.skipOffer);
-  const syncPoolSession = useOperatorStore((state) => state.syncPoolSession);
+  const unskipOffer = useOperatorStore((state) => state.unskipOffer);
+  const replacePool = useOperatorStore((state) => state.replacePool);
+  const replaceActiveSessions = useOperatorStore((state) => state.replaceActiveSessions);
+  const removeActiveSession = useOperatorStore((state) => state.removeActiveSession);
   const activeSessionsById = useOperatorStore((state) => state.activeSessionsById);
   const poolCount = useOperatorStore((state) => Object.keys(state.poolById).length);
+  // Истёкшие пропуски стор вычищает сам (useSkipCooldown), так что ключ здесь —
+  // значит вызов сейчас спрятан.
+  const skippedCount = useOperatorStore(
+    (state) => Object.keys(state.skippedUntil).filter((id) => state.poolById[id]).length,
+  );
+  const queryClient = useQueryClient();
   const liveLocationsBySessionId = useOperatorStore((state) => state.liveLocationsBySessionId);
   const upsertActiveSession = useOperatorStore((state) => state.upsertActiveSession);
 
@@ -61,10 +72,11 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   } | null>(null);
   const [isStarting, setIsStarting] = React.useState(false);
 
-  // Пул и свои вызовы подтягиваются один раз при открытии; дальше их ведёт сокет.
+  // Пул и свои вызовы подтягиваются при открытии и возврате в приложение;
+  // между этим их ведёт сокет. Лимит как у снимка сокета.
   const poolQuery = usePaginatedList({
     queryKey: ["operator-pool"],
-    limit: 20,
+    limit: 100,
     fetcher: dispatchApi.pool,
   });
   const activeQuery = usePaginatedList({
@@ -79,17 +91,19 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     () => poolQuery.data?.pages.flatMap((p) => p.data) ?? [],
     [poolQuery.data],
   );
+  // Ответ сервера — вся правда: вызов, ушедший из пула, пока сокет лежал,
+  // виден только по отсутствию в ответе.
   React.useEffect(() => {
-    restPool.forEach(syncPoolSession);
-  }, [restPool, syncPoolSession]);
+    if (poolQuery.data) replacePool(restPool);
+  }, [poolQuery.data, restPool, replacePool]);
 
   const restActive = React.useMemo(
     () => activeQuery.data?.pages.flatMap((p) => p.data) ?? [],
     [activeQuery.data],
   );
   React.useEffect(() => {
-    restActive.forEach(upsertActiveSession);
-  }, [restActive, upsertActiveSession]);
+    if (activeQuery.data) replaceActiveSessions(restActive);
+  }, [activeQuery.data, restActive, replaceActiveSessions]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -174,15 +188,41 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
       upsertActiveSession(updated);
       toastBus.show({ message: ru.operator.updated, severity: "success" });
     } catch (error) {
-      const { status, message } = handleApiError(error);
-      toastBus.show({
-        message: status === 409 ? ru.operator.sessionConflict : message,
-        severity: "error",
-      });
+      const { code, message } = handleApiError(error);
+      // Вызов закрыли или сняли с оператора, пока он был не на связи. Карточке
+      // больше не место — иначе она висит, и новые вызовы не предлагаются.
+      if (code === "SESSION_ALREADY_CLOSED" || code === "NOT_ASSIGNED_TO_SESSION") {
+        removeActiveSession(activeCall.id);
+        toastBus.show({
+          message:
+            code === "SESSION_ALREADY_CLOSED" ? ru.operator.alreadyClosed : ru.operator.notYoursAnymore,
+          severity: "warning",
+        });
+      } else {
+        toastBus.show({ message, severity: "error" });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["operator-active"] });
     } finally {
       setIsStarting(false);
     }
-  }, [activeCall, upsertActiveSession]);
+  }, [activeCall, queryClient, removeActiveSession, upsertActiveSession]);
+
+  const onSkipOffer = React.useCallback(
+    (sessionId: string) => {
+      skipOffer(sessionId);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Свайп легко сделать случайно — вызов возвращается одним касанием.
+      toastBus.show({
+        message: ru.operatorPool.skipped,
+        severity: "info",
+        actionLabel: ru.operatorPool.undoSkip,
+        onAction: () => unskipOffer(sessionId),
+      });
+    },
+    [skipOffer, unskipOffer],
+  );
+
+  const openQueue = React.useCallback(() => navigation.navigate("OperatorQueueModal"), [navigation]);
 
   /** Сколько свободных вызовов ждёт помимо того, что предложен сейчас. */
   const queued = Math.max(0, poolCount - (offer ? 1 : 0));
@@ -265,11 +305,17 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
               : ru.operatorShift.onShift}
           </Text>
           {queued > 0 ? (
-            <View style={[styles.queueBadge, { backgroundColor: tokens.colors.danger + "22" }]}>
+            <Pressable
+              onPress={openQueue}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={ru.operatorPool.queueTitle}
+              style={[styles.queueBadge, { backgroundColor: tokens.colors.danger + "22" }]}
+            >
               <Text style={[styles.queueText, { color: tokens.colors.danger }]}>
                 {ru.operatorPool.queueMore.replace("{count}", String(queued))}
               </Text>
-            </View>
+            </Pressable>
           ) : null}
           <Pressable
             onPress={confirmEndShift}
@@ -336,19 +382,29 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
             session={offer}
             isAccepting={acceptingId === offer.id}
             onAccept={() => void accept(offer.id)}
-            onDismiss={() => skipOffer(offer.id)}
+            onDismiss={() => onSkipOffer(offer.id)}
           />
         ) : !activeCall ? (
-          <View
+          <Pressable
+            onPress={skippedCount > 0 ? openQueue : undefined}
+            disabled={skippedCount === 0}
+            accessibilityRole={skippedCount > 0 ? "button" : undefined}
             style={[
               styles.idle,
               { backgroundColor: tokens.colors.surface + "F2", borderColor: tokens.colors.border },
             ]}
           >
-            <Text style={[styles.idleText, { color: tokens.colors.onSurfaceMuted }]}>
-              {ru.operatorPool.waitingForCalls}
+            <Text
+              style={[
+                styles.idleText,
+                { color: skippedCount > 0 ? tokens.colors.danger : tokens.colors.onSurfaceMuted },
+              ]}
+            >
+              {skippedCount > 0
+                ? ru.operatorPool.skippedCount.replace("{count}", String(skippedCount))
+                : ru.operatorPool.waitingForCalls}
             </Text>
-          </View>
+          </Pressable>
         ) : null}
       </View>
 

@@ -10,6 +10,9 @@ import { dispatchApi } from "../../api/modules/dispatch";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { AppInput } from "../../components/ui/AppInput";
 import { toastBus } from "../../ui/feedback/toastBus";
+import { useOperatorStore } from "../../stores/operatorStore";
+import { handleApiError } from "../../utils/error/handleApiError";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
 
@@ -34,6 +37,9 @@ type Props = NativeStackScreenProps<OperatorStackParamList, "OperatorResolveModa
 export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
   const { tokens } = useAppTheme();
   const { sessionId } = route.params;
+  const removeActiveSession = useOperatorStore((state) => state.removeActiveSession);
+  const removePoolSession = useOperatorStore((state) => state.removePoolSession);
+  const queryClient = useQueryClient();
   const {
     control,
     handleSubmit,
@@ -45,12 +51,38 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
     defaultValues: { resolution: "" },
   });
 
+  /**
+   * Карточку убираем по ответу сервера, а не по событию emergency:closed. Сокет
+   * часто лежит ровно в этот момент — оператор только что вернулся из звонка
+   * или навигатора, — и без события карточка «В работе» висела до перезапуска.
+   */
+  const dropLocally = () => {
+    removeActiveSession(sessionId);
+    removePoolSession(sessionId);
+    void queryClient.invalidateQueries({ queryKey: ["operator-active"] });
+    void queryClient.invalidateQueries({ queryKey: ["operator-history"] });
+  };
+
   const onSubmit = async (values: FormValues) => {
     try {
       await dispatchApi.resolve(sessionId, values.resolution);
+      dropLocally();
       toastBus.show({ message: ru.operator.resolved, severity: "success" });
       navigation.goBack();
-    } catch {
+    } catch (error) {
+      const { code } = handleApiError(error);
+      // Вызов уже закрыт или снят с оператора, пока тот был без связи: закрывать
+      // нечего, но и держать карточку на экране незачем.
+      if (code === "SESSION_ALREADY_CLOSED" || code === "NOT_ASSIGNED_TO_SESSION") {
+        dropLocally();
+        toastBus.show({
+          message:
+            code === "SESSION_ALREADY_CLOSED" ? ru.operator.alreadyClosed : ru.operator.notYoursAnymore,
+          severity: "warning",
+        });
+        navigation.goBack();
+        return;
+      }
       toastBus.show({ message: ru.operator.resolveFail, severity: "error" });
     }
   };

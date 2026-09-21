@@ -649,7 +649,8 @@ export const ru = {
     resolved: "Сессия закрыта",
     resolveFail: "Не закрылась",
     updated: "Обновлено",
-    sessionConflict: "Состояние тревоги изменилось. Обновите список",
+    alreadyClosed: "Вызов уже закрыт",
+    notYoursAnymore: "Вызов снят с вас",
   },
 
   operatorShift: {
@@ -668,6 +669,7 @@ export const ru = {
     endConfirmCancel: "Остаться",
     endedByInactivity: "Смена снята: приложение долго не выходило на связь",
     endedByAdmin: "Администратор снял вас со смены",
+    endedWhileOffline: "Смена завершилась, пока приложение было без связи",
   },
 
   operatorPool: {

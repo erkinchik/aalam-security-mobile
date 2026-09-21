@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { AppState } from "react-native";
 import { dispatchApi } from "../api/modules/dispatch";
 import { useAuthStore } from "../stores/authStore";
 
@@ -34,7 +35,15 @@ export const useHeartbeat = (intervalMs = 15000) => {
 
     void tick();
     const id = setInterval(() => void tick(), intervalMs);
+    // В фоне таймер стоит. Вернулся — отмечаемся сразу, а не через 15 с:
+    // принятый вызов сервер забирает по тишине.
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void tick();
+    });
 
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      subscription.remove();
+    };
   }, [intervalMs, isAuthenticated, role]);
 };

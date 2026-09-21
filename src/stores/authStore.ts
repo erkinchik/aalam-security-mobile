@@ -6,6 +6,7 @@ import { authApi } from "../api/modules/auth";
 import { usersApi } from "../api/modules/users";
 import { secureStorage } from "./secureStorage";
 import { useUserSessionStore } from "./userSessionStore";
+import { useOperatorStore } from "./operatorStore";
 import { queryClient } from "../queryClient";
 
 interface AuthState {
@@ -215,6 +216,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     ]);
 
     queryClient.clear();
+    useOperatorStore.getState().reset();
 
     set({
       accessToken: null,

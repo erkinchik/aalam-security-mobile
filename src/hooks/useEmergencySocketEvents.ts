@@ -9,6 +9,16 @@ import { EmergencySession } from "../types/emergency";
 import { toastBus } from "../ui/feedback/toastBus";
 import { ru } from "../locale/ru";
 import { navigateToOperatorHome } from "../navigation/navigationRef";
+import { queryClient } from "../queryClient";
+import { OPERATOR_SHIFT_QUERY_KEY } from "./useOperatorShift";
+
+/**
+ * Когда последний раз обновляли токен из-за разрыва со стороны сервера. Вне
+ * хука: эффект пересоздаётся при каждой смене токена, и счётчик внутри него
+ * обнулялся бы ровно после обновления. Не чаще раза в минуту — если сервер рвёт
+ * соединение сразу после подключения (учётку удалили), иначе вышел бы цикл.
+ */
+let lastServerDropRefreshAt = 0;
 
 export const useEmergencySocketEvents = () => {
   const token = useAuthStore((state) => state.accessToken);
@@ -24,6 +34,8 @@ export const useEmergencySocketEvents = () => {
   const removePoolSession = useOperatorStore((state) => state.removePoolSession);
   const removeActiveSession = useOperatorStore((state) => state.removeActiveSession);
   const setShift = useOperatorStore((state) => state.setShift);
+  const replaceActiveSessions = useOperatorStore((state) => state.replaceActiveSessions);
+  const replacePool = useOperatorStore((state) => state.replacePool);
 
   useEffect(() => {
     if (!token) {
@@ -52,8 +64,17 @@ export const useEmergencySocketEvents = () => {
       setConnected(true);
       setReconnecting(false);
     };
-    const onDisconnect = () => setConnected(false);
-    const onReconnectAttempt = () => setReconnecting(true);
+    const onDisconnect = (reason: string) => {
+      setConnected(false);
+      // Сервер закрыл сокет сам — чаще всего по истечении токена. socket.io в
+      // этом случае не переподключается, и оператор молча оставался без
+      // вызовов. Новый токен поднимет соединение: хук пересоздаёт сокет при его
+      // смене.
+      if (reason === "io server disconnect" && Date.now() - lastServerDropRefreshAt > 60_000) {
+        lastServerDropRefreshAt = Date.now();
+        void useAuthStore.getState().refresh();
+      }
+    };
     const onConnectError = (err: Error) => {
       const msg = err?.message ?? "";
       if (msg.includes("401") || msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("auth")) {
@@ -61,16 +82,16 @@ export const useEmergencySocketEvents = () => {
       }
     };
     // Сервер закрывает сокет по истечении токена. Предупреждение приходит за
-    // минуту — успеваем обновить сессию, и переподключение уйдёт уже с новым
-    // токеном вместо бесконечных отказов.
+    // минуту — обновляем токен, и сокет переподключится уже с новым.
+    // revalidateSession здесь не годился: он ходит со старым, ещё живым
+    // токеном и ничего не обновляет.
     const onAuthExpiring = () => {
-      void useAuthStore.getState().revalidateSession();
+      void useAuthStore.getState().refresh();
     };
 
     socket.on("connect", onConnect);
     socket.on("auth:expiring", onAuthExpiring);
     socket.on("disconnect", onDisconnect);
-    socket.on("reconnect_attempt", onReconnectAttempt);
     socket.on("connect_error", onConnectError);
 
     const onSessionEvent = (payload: EmergencySession) => {
@@ -131,7 +152,10 @@ export const useEmergencySocketEvents = () => {
         );
         if (wasMine && payload.assignedOperatorId !== myUserId) {
           toastBus.show({
-            message: ru.operatorPool.takenAway,
+            // Без исполнителя — вызов вернули в очередь (админ или по тишине).
+            message: payload.assignedOperatorId
+              ? ru.operatorPool.takenAway
+              : ru.operatorPool.returnedToQueue,
             severity: "warning",
           });
         }
@@ -139,14 +163,35 @@ export const useEmergencySocketEvents = () => {
       onSessionEvent(payload);
     };
 
-    /** Снимок пула и своих вызовов после (пере)подключения — REL-6. */
-    const onBootstrap = (payload: { sessions?: EmergencySession[] }) => {
+    /**
+     * Снимок после (пере)подключения — вся правда о смене, своих вызовах и пуле.
+     * Заменяем, а не сливаем: всё, что случилось, пока сокет лежал (вызов
+     * закрыли, забрали, смену сняли), видно только по отсутствию в снимке.
+     */
+    const onBootstrap = (payload: { sessions?: EmergencySession[]; onShift?: boolean }) => {
       markEvent();
       if (role !== "OPERATOR") return;
-      (payload?.sessions ?? []).forEach((session) => {
-        syncPoolSession(session);
-        syncMySession(session);
-      });
+      const sessions = payload?.sessions ?? [];
+      if (typeof payload?.onShift === "boolean") {
+        const wasOnShift = useOperatorStore.getState().isOnShift;
+        if (payload.onShift !== wasOnShift) {
+          setShift({
+            onShift: payload.onShift,
+            shiftStartedAt: payload.onShift
+              ? useOperatorStore.getState().shiftStartedAt
+              : null,
+          });
+          // Время начала смены в снимке нет — пусть подтянет запрос смены.
+          void queryClient.invalidateQueries({ queryKey: OPERATOR_SHIFT_QUERY_KEY });
+          if (!payload.onShift) {
+            toastBus.show({ message: ru.operatorShift.endedWhileOffline, severity: "warning" });
+          }
+        }
+      }
+      replaceActiveSessions(
+        sessions.filter((session) => session.assignedOperatorId === myUserId),
+      );
+      replacePool(sessions);
     };
 
     const onSessionClosed = (payload: EmergencySession) => {
@@ -201,8 +246,14 @@ export const useEmergencySocketEvents = () => {
         }
       }
       if (role === "OPERATOR") {
+        // Координаты обновляют только вызов, который уже на экране. Иначе
+        // точка, пришедшая сразу после закрытия, воскрешала закрытый вызов.
+        const known = useOperatorStore.getState().activeSessionsById[payload.session.id];
+        if (!known) return;
         syncMySession(payload.session);
-        setLiveLocationForSession(payload.session.id, payload.location);
+        if (payload.session.status !== "CLOSED") {
+          setLiveLocationForSession(payload.session.id, payload.location);
+        }
       }
     };
 
@@ -242,7 +293,6 @@ export const useEmergencySocketEvents = () => {
       socket.off("connect", onConnect);
       socket.off("auth:expiring", onAuthExpiring);
       socket.off("disconnect", onDisconnect);
-      socket.off("reconnect_attempt", onReconnectAttempt);
       socket.off("connect_error", onConnectError);
       socket.off("emergency:new", onEmergencyNew);
       socket.off("emergency:bootstrap", onBootstrap);
@@ -261,6 +311,8 @@ export const useEmergencySocketEvents = () => {
     myUserId,
     removeActiveSession,
     removePoolSession,
+    replaceActiveSessions,
+    replacePool,
     role,
     setShift,
     setActiveSession,

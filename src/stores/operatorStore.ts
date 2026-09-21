@@ -11,6 +11,9 @@ type LocationMap = Record<string, EmergencyLocation>;
  */
 export const SKIP_COOLDOWN_MS = 120_000;
 
+/** Сколько живёт в пуле вызов, которого нет в снимке сервера, — см. replacePool. */
+const FRESH_POOL_MS = 15_000;
+
 /** Свободный вызов — ещё не принят никем. */
 const isUnclaimed = (session: EmergencySession) =>
   session.status === "NEW" && !session.assignedOperatorId;
@@ -33,6 +36,14 @@ interface OperatorState {
   setLiveLocationForSession: (sessionId: string, location: EmergencyLocation) => void;
   upsertActiveSession: (session: EmergencySession) => void;
   removeActiveSession: (sessionId: string) => void;
+  /**
+   * Свои вызовы целиком из снимка сервера. Слиянием нельзя: вызов, закрытый,
+   * пока сокет лежал, в снимке просто отсутствует, и при слиянии он висел на
+   * экране до перезапуска приложения.
+   */
+  replaceActiveSessions: (sessions: EmergencySession[]) => void;
+  /** Пул целиком из снимка сервера — по той же причине. */
+  replacePool: (sessions: EmergencySession[]) => void;
   /** Кладёт в пул, если вызов свободен, иначе убирает — по одному правилу. */
   syncPoolSession: (session: EmergencySession) => void;
   removePoolSession: (sessionId: string) => void;
@@ -41,11 +52,24 @@ interface OperatorState {
   skipOffer: (sessionId: string) => void;
   /** Убирает отлежавшиеся пропуски, чтобы вызов снова стал предлагаться. */
   expireSkips: () => void;
+  /** Вернуть смахнутый вызов в предложения — случайный свайп или выбор из очереди. */
+  unskipOffer: (sessionId: string) => void;
+  /** Выход из учётки: следующий пользователь не должен унаследовать чужие вызовы. */
+  reset: () => void;
 }
 
+const INITIAL_STATE = {
+  activeSessionsById: {} as SessionMap,
+  liveLocationsBySessionId: {} as LocationMap,
+  poolById: {} as SessionMap,
+  isOnShift: false,
+  shiftStartedAt: null as string | null,
+  isShiftResolved: false,
+  skippedUntil: {} as Record<string, number>,
+};
+
 export const useOperatorStore = create<OperatorState>((set) => ({
-  activeSessionsById: {},
-  liveLocationsBySessionId: {},
+  ...INITIAL_STATE,
   setLiveLocationForSession: (sessionId, location) =>
     set((state) => ({
       liveLocationsBySessionId: {
@@ -59,7 +83,9 @@ export const useOperatorStore = create<OperatorState>((set) => ({
       if (session.status === "CLOSED") {
         delete nextSessions[session.id];
       } else {
-        nextSessions[session.id] = session;
+        // Слияние, а не замена: событие без части полей не должно стирать с
+        // карточки телефон и вход в объект.
+        nextSessions[session.id] = { ...nextSessions[session.id], ...session };
       }
       return { activeSessionsById: nextSessions };
     }),
@@ -70,11 +96,41 @@ export const useOperatorStore = create<OperatorState>((set) => ({
       delete next[sessionId];
       return { activeSessionsById: next };
     }),
-  poolById: {},
-  isOnShift: false,
-  shiftStartedAt: null,
-  isShiftResolved: false,
-  skippedUntil: {},
+  replaceActiveSessions: (sessions) =>
+    set((state) => {
+      const open = sessions.filter((session) => session.status !== "CLOSED");
+      const ids = new Set(open.map((session) => session.id));
+      return {
+        activeSessionsById: Object.fromEntries(open.map((session) => [session.id, session])),
+        liveLocationsBySessionId: Object.fromEntries(
+          Object.entries(state.liveLocationsBySessionId).filter(([id]) => ids.has(id)),
+        ),
+      };
+    }),
+  replacePool: (sessions) =>
+    set((state) => {
+      if (!state.isOnShift) return { poolById: {}, skippedUntil: {} };
+      const nextPool: SessionMap = Object.fromEntries(
+        sessions.filter(isUnclaimed).map((session) => [session.id, session]),
+      );
+      // Снимок мог разминуться с emergency:new: вызов создан уже после того, как
+      // сервер прочитал базу. Совсем свежие вызовы не выбрасываем — призраки,
+      // ради которых замена и нужна, всегда старше.
+      const now = Date.now();
+      for (const session of Object.values(state.poolById)) {
+        if (!nextPool[session.id] && now - new Date(session.createdAt).getTime() < FRESH_POOL_MS) {
+          nextPool[session.id] = session;
+        }
+      }
+      const ids = new Set(Object.keys(nextPool));
+      return {
+        poolById: nextPool,
+        // Пропуск ушедшего вызова больше ничего не значит.
+        skippedUntil: Object.fromEntries(
+          Object.entries(state.skippedUntil).filter(([id]) => ids.has(id)),
+        ),
+      };
+    }),
   syncPoolSession: (session) =>
     set((state) => {
       const alreadyInPool = Boolean(state.poolById[session.id]);
@@ -100,13 +156,17 @@ export const useOperatorStore = create<OperatorState>((set) => ({
     set(
       onShift
         ? { isOnShift: true, shiftStartedAt, isShiftResolved: true }
-        : // Вне смены вызовы не приходят: пул и пропуски начинаются заново.
+        : // Вне смены вызовов нет: пул и пропуски начинаются заново, а своих
+          // открытых быть не может — сервер не отдаёт смену с ними. Оставшийся
+          // здесь вызов — это фантом, который вернулся бы с новой сменой.
           {
             isOnShift: false,
             shiftStartedAt: null,
             isShiftResolved: true,
             poolById: {},
             skippedUntil: {},
+            activeSessionsById: {},
+            liveLocationsBySessionId: {},
           },
     ),
   skipOffer: (sessionId) =>
@@ -126,12 +186,20 @@ export const useOperatorStore = create<OperatorState>((set) => ({
         ? state
         : { skippedUntil: next };
     }),
+  unskipOffer: (sessionId) =>
+    set((state) => {
+      if (!(sessionId in state.skippedUntil)) return state;
+      const next = { ...state.skippedUntil };
+      delete next[sessionId];
+      return { skippedUntil: next };
+    }),
+  reset: () => set(INITIAL_STATE),
 }));
 
 /**
  * Текущее предложение — самый давний свободный вызов, который оператор ещё не
- * смахнул. Списка вызовов в интерфейсе нет, поэтому пул проявляется только
- * через эту карточку: смахнул одну — сразу предлагается следующая.
+ * смахнул: смахнул одну карточку — сразу предлагается следующая. Весь пул,
+ * включая смахнутые, виден в очереди (OperatorQueueModal).
  *
  * Занятому оператору не предлагается ничего. Сервер и так перестаёт слать ему
  * новые вызовы, но принятие происходит на клиенте раньше, чем приходит ответ,

@@ -50,6 +50,9 @@ export const useOperatorShift = () => {
     setShift({ onShift: data.onShift, shiftStartedAt: data.shiftStartedAt });
     // Пул существует только на смене — перечитываем в обе стороны.
     void queryClient.invalidateQueries({ queryKey: ["operator-pool"] });
+    // Кэш своих вызовов живёт дольше смены: новая смена, начатая в пределах
+    // пяти минут, сначала подставила бы из него уже закрытый вызов.
+    if (!data.onShift) queryClient.removeQueries({ queryKey: ["operator-active"] });
   };
 
   const startShift = useApiMutation(dispatchApi.startShift, {

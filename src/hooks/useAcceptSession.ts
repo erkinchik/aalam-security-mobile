@@ -5,6 +5,7 @@ import { useOperatorStore } from "../stores/operatorStore";
 import { handleApiError } from "../utils/error/handleApiError";
 import { toastBus } from "../ui/feedback/toastBus";
 import { ru } from "../locale/ru";
+import { OPERATOR_SHIFT_QUERY_KEY } from "./useOperatorShift";
 
 /**
  * Приём вызова. Первый успевший получает 200, остальные — 409: это штатный
@@ -34,12 +35,19 @@ export const useAcceptSession = () => {
           code === "SESSION_ALREADY_CLAIMED" ||
           code === "SESSION_NOT_FOUND" ||
           code === "SESSION_ALREADY_CLOSED" ||
+          // Вызов закрыли до приёма — иначе карточка и сирена оставались.
+          code === "SESSION_WRONG_STATUS" ||
           status === 404;
         toastBus.show({
           message: lost ? ru.operatorPool.takenByOther : message,
           severity: lost ? "info" : "error",
         });
         if (lost) removePoolSession(sessionId);
+        // Смену сняли, а приложение не узнало: перечитываем, чтобы показать
+        // экран начала смены вместо предложения, которое не принять.
+        if (code === "NOT_ON_SHIFT") {
+          void queryClient.invalidateQueries({ queryKey: OPERATOR_SHIFT_QUERY_KEY });
+        }
         return false;
       } finally {
         setAcceptingId(null);
