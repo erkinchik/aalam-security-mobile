@@ -23,7 +23,13 @@ export const usePushNotifications = () => {
   const hasRegistered = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated || role !== "OPERATOR" || !accessToken) return;
+    // Сервер при выходе стирает push-токен. Без сброса флага следующий вход без
+    // перезапуска приложения токен заново не регистрировал, и push не приходили.
+    if (!isAuthenticated) {
+      hasRegistered.current = false;
+      return;
+    }
+    if (role !== "OPERATOR" || !accessToken) return;
     if (hasRegistered.current) return;
 
     let cancelled = false;
