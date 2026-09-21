@@ -60,8 +60,10 @@ export const usePushNotifications = () => {
         if (cancelled) return;
         await usersApi.registerPushToken(data);
         hasRegistered.current = true;
-      } catch {
-        // Ignore token registration errors
+      } catch (error) {
+        // Без токена оператор просто не получит push, когда приложение закрыто.
+        // Прерывать вход из-за этого нельзя, но и молчать не стоит.
+        console.warn("push: не удалось зарегистрировать токен", error);
       }
     };
 

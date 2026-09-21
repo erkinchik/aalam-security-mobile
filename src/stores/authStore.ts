@@ -202,7 +202,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (refreshToken) {
       try {
         await authApi.logout({ refreshToken });
-      } catch {}
+      } catch (error) {
+        // Локальный выход всё равно доводим до конца, но молчать нельзя: именно
+        // этот запрос отзывает refresh-токен и гасит push-токен на сервере.
+        console.warn("logout: сервер не подтвердил выход", error);
+      }
     }
     await Promise.all([
       secureStorage.clearTokens(),
