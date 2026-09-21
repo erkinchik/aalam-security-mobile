@@ -50,7 +50,7 @@ export const organizationApi = {
     const { data } = await apiClient.get<OrganizationMember[]>("/organization/my");
     return data;
   },
-  async create(payload: { name: string; type: "PERSONAL" | "BUSINESS" }) {
+  async create(payload: { name: string }) {
     const { data } = await apiClient.post<OrganizationMember["organization"]>("/organization", payload);
     return data;
   },

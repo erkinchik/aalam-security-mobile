@@ -25,7 +25,7 @@ type Props = NativeStackScreenProps<CommonStackParamList, "MyOrganizations">;
 const ROLE_LABELS: Record<string, string> = {
   OWNER: ru.roles.owner,
   MANAGER: ru.roles.manager,
-  OPERATOR: ru.roles.operator,
+  STAFF: ru.roles.staff,
   MEMBER: ru.roles.member,
 };
 

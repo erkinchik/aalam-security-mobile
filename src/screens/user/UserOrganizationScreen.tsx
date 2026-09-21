@@ -38,13 +38,8 @@ const monoFont = Platform.select({ ios: "Menlo", android: "monospace", default: 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: ru.roles.owner,
   MANAGER: ru.roles.manager,
-  OPERATOR: ru.roles.operator,
+  STAFF: ru.roles.staff,
   MEMBER: ru.roles.member,
-};
-
-const TYPE_LABELS: Record<string, string> = {
-  PERSONAL: ru.userOrg.personal,
-  BUSINESS: ru.userOrg.business,
 };
 
 export const UserOrganizationScreen = ({ navigation }: Props) => {
@@ -137,7 +132,7 @@ export const UserOrganizationScreen = ({ navigation }: Props) => {
   const org = m.organization;
   const venues = org.venues ?? [];
   const memberCount = org._count?.members ?? null;
-  const typeLabel = TYPE_LABELS[org.type] ?? org.type;
+  const typeLabel = ru.userOrg.business;
   const roleLabel = ROLE_LABELS[m.role] ?? m.role;
   const isMemberParticipant = (m.role ?? "").toUpperCase() === "MEMBER";
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { CompositeScreenProps } from "@react-navigation/native";
+import { CompositeScreenProps, useFocusEffect } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
@@ -90,23 +90,24 @@ export const UserHomeScreen = ({ navigation }: Props) => {
     setButtonState(activeSession ? "active" : "idle");
   }, [activeSession]);
 
+  // Redirect to active emergency if session exists when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (activeSession) {
+        navigation.navigate("UserActiveEmergency", { sessionId: activeSession.id });
+      }
+    }, [activeSession, navigation]),
+  );
+
   const hasOrganization = memberships.length > 0;
-  const isBusinessOwner = memberships.some((m) => {
-    const role = (m.role ?? "").toUpperCase();
-    const orgType = (m.organization.type ?? "").toUpperCase();
-    return role === "OWNER" && orgType === "BUSINESS";
-  });
-  const ownerMembership = memberships.find((m) => {
-    const role = (m.role ?? "").toUpperCase();
-    const orgType = (m.organization.type ?? "").toUpperCase();
-    return role === "OWNER" && orgType === "BUSINESS";
-  });
+  // Тип организации убран: личных организаций нет, все записи — компании.
+  const isOwner = (m: (typeof memberships)[number]) =>
+    (m.role ?? "").toUpperCase() === "OWNER";
+  const isBusinessOwner = memberships.some(isOwner);
+  const ownerMembership = memberships.find(isOwner);
   const orgWideMembership = memberships.find((m) => {
     const role = (m.role ?? "").toUpperCase();
-    const orgType = (m.organization.type ?? "").toUpperCase();
-    const wide =
-      orgType === "BUSINESS" && (role === "MEMBER" || role === "MANAGER") && !m.venueId;
-    return Boolean(wide);
+    return (role === "MEMBER" || role === "MANAGER") && !m.venueId;
   });
   const isOrgWideEmployee = Boolean(orgWideMembership);
   const branchPickerMembership = ownerMembership ?? orgWideMembership;
@@ -154,11 +155,8 @@ export const UserHomeScreen = ({ navigation }: Props) => {
     isBusinessOwner ||
     (isOrgWideEmployee && branchVenues.length > 0);
   const inactiveReason = !hasOrganization && !hasIndividualSubscription ? "no_access" : "needs_assignment";
-  /** Один аккаунт PERSONAL после регистрации — без лишних предупреждений «нужна точка» и без блока «Моя организация». */
-  const isNewUserPersonalHome =
-    !canUseApp &&
-    memberships.length === 1 &&
-    (memberships[0].organization.type ?? "").toUpperCase() === "PERSONAL";
+  /** Пользователь без компании — без предупреждений «нужна точка» и без блока «Моя организация». */
+  const isNewUserPersonalHome = !canUseApp && !hasOrganization;
 
   const onStartSos = async () => {
     if (activeSession) {
@@ -327,12 +325,14 @@ export const UserHomeScreen = ({ navigation }: Props) => {
                 </View>
               </View>
               <Text style={styles.orgLine}>
-                {hasIndividualSubscription && !hasAssignedVenue
+                {!hasOrganization || (hasIndividualSubscription && !hasAssignedVenue)
                   ? `${ru.userHome.orgPrefix} ${ru.userHome.individualPlan}`
-                  : `${ru.userHome.orgPrefix} ${memberships[0]?.organization.name ?? "—"}`}
+                  : `${ru.userHome.orgPrefix} ${memberships[0]?.organization.name}`}
               </Text>
               <Text style={[styles.assignedLine, { color: P.muted }]}>
-                {hasIndividualSubscription && !hasAssignedVenue && !isOrgWideEmployee
+                {(!hasOrganization || hasIndividualSubscription) &&
+                !hasAssignedVenue &&
+                !isOrgWideEmployee
                   ? `${ru.userHome.venuePrefix} ${ru.userHome.personalMode}`
                   : `${ru.userHome.venuePrefix} ${
                       isOrgWideEmployee && !currentVenueName

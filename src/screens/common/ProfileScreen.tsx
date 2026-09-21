@@ -87,15 +87,6 @@ export const ProfileScreen = () => {
 
         <View style={styles.legalRow}>
           <ActionButton
-            variant="secondary"
-            size="small"
-            label={ru.profileCommon.myOrgs}
-            onPress={() => navigation.navigate("Common", { screen: "MyOrganizations" })}
-          />
-        </View>
-
-        <View style={styles.legalRow}>
-          <ActionButton
             variant="ghost"
             size="small"
             label={ru.profileCommon.terms}
