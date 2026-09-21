@@ -41,6 +41,17 @@ export const ActiveCallCard = ({
   const phone = session.user?.phone ?? null;
   const address = entry?.address ?? entry?.title ?? null;
 
+  /**
+   * Звонок и маршрут уводят из приложения, а на iOS оно в фоне засыпает и
+   * перестаёт слать пульс. Принятый, но не начатый вызов сервер по тишине
+   * забирает через 2 минуты, поэтому раз оператор уже действует — вызов сразу
+   * переходит «В работу», которую по тишине не отбирают.
+   */
+  const leaveTo = (open: () => void) => {
+    if (session.status === "ASSIGNED" && !isStarting) onStartProgress();
+    open();
+  };
+
   return (
     <View
       style={[
@@ -98,7 +109,7 @@ export const ActiveCallCard = ({
           label={ru.operatorScreens.call}
           leftIcon={<Phone size={16} color={tokens.colors.onSurface} strokeWidth={2} />}
           disabled={!phone}
-          onPress={() => phone && callPhone(phone)}
+          onPress={() => phone && leaveTo(() => callPhone(phone))}
           accessibilityLabel={ru.operatorScreens.callA11y}
           style={styles.quickBtn}
         />
@@ -108,7 +119,7 @@ export const ActiveCallCard = ({
           label={ru.operatorScreens.route}
           leftIcon={<Navigation size={16} color={tokens.colors.onSurface} strokeWidth={2} />}
           disabled={!coords}
-          onPress={() => coords && openRoute(coords, entry?.title)}
+          onPress={() => coords && leaveTo(() => openRoute(coords, entry?.title))}
           accessibilityLabel={ru.operatorScreens.routeA11y}
           style={styles.quickBtn}
         />
