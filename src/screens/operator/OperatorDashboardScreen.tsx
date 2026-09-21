@@ -1,13 +1,13 @@
 import React from "react";
 import * as Location from "expo-location";
-import { CompositeScreenProps } from "@react-navigation/native";
+import { CompositeScreenProps, useNavigation } from "@react-navigation/native";
 import { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker } from "react-native-maps";
-import { Crosshair, LogOut } from "lucide-react-native";
-import { OperatorStackParamList, OperatorTabParamList } from "../../navigation/types";
+import { Crosshair, LogOut, UserRound } from "lucide-react-native";
+import { OperatorStackParamList, OperatorTabParamList, RootStackParamList } from "../../navigation/types";
 import { selectCurrentOffer, useOperatorStore } from "../../stores/operatorStore";
 import { useOperatorShift } from "../../hooks/useOperatorShift";
 import { useAcceptSession } from "../../hooks/useAcceptSession";
@@ -15,10 +15,12 @@ import { usePaginatedList } from "../../hooks/usePaginatedList";
 import { dispatchApi } from "../../api/modules/dispatch";
 import { OfferCard } from "../../components/operator/OfferCard";
 import { ActiveCallCard } from "../../components/operator/ActiveCallCard";
+import { ConnectionBanner } from "../../components/operator/ConnectionBanner";
 import { HAS_MAP_SUPPORT, MAP_PROVIDER } from "../../components/maps/mapProvider";
 import { ErrorState } from "../../components/state/ErrorState";
 import { useAppTheme } from "../../theme";
 import { EmergencySession } from "../../types/emergency";
+import { sessionCoords } from "../../utils/emergencySession";
 import { toastBus } from "../../ui/feedback/toastBus";
 import { handleApiError } from "../../utils/error/handleApiError";
 import { ru } from "../../locale/ru";
@@ -35,16 +37,6 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.15,
 };
 
-const coordsOf = (session: EmergencySession) => {
-  const last = session.locations?.[session.locations.length - 1];
-  if (last) return { latitude: last.latitude, longitude: last.longitude };
-  const venue = session.venue;
-  if (venue?.latitude != null && venue?.longitude != null) {
-    return { latitude: venue.latitude, longitude: venue.longitude };
-  }
-  return null;
-};
-
 export const OperatorDashboardScreen = ({ navigation }: Props) => {
   const { tokens } = useAppTheme();
   // Карта занимает весь экран, а оверлеи позиционированы абсолютно — SafeAreaView
@@ -52,15 +44,16 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   const insets = useSafeAreaInsets();
   const mapRef = React.useRef<MapView | null>(null);
 
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { shiftStartedAt, toggleShift, isToggling } = useOperatorShift();
   const { accept, acceptingId } = useAcceptSession();
   const offer = useOperatorStore(selectCurrentOffer);
   const skipOffer = useOperatorStore((state) => state.skipOffer);
   const syncPoolSession = useOperatorStore((state) => state.syncPoolSession);
   const activeSessionsById = useOperatorStore((state) => state.activeSessionsById);
+  const poolCount = useOperatorStore((state) => Object.keys(state.poolById).length);
   const liveLocationsBySessionId = useOperatorStore((state) => state.liveLocationsBySessionId);
   const upsertActiveSession = useOperatorStore((state) => state.upsertActiveSession);
-  const setSelectedSession = useOperatorStore((state) => state.setSelectedSession);
 
   const [operatorLocation, setOperatorLocation] = React.useState<{
     latitude: number;
@@ -79,6 +72,8 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     limit: 20,
     fetcher: dispatchApi.active,
   });
+
+  const refetchPool = poolQuery.refetch;
 
   const restPool = React.useMemo(
     () => poolQuery.data?.pages.flatMap((p) => p.data) ?? [],
@@ -125,13 +120,25 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     );
   }, [activeSessionsById]);
 
+  // Пока оператор занят, сервер не шлёт ему новые вызовы — локальный пул за
+  // это время устаревает. Освободился — перечитываем, иначе он ждал бы
+  // следующего SOS, не зная про уже висящие в очереди.
+  const hasActiveCall = Boolean(activeCall);
+  const hadActiveCall = React.useRef(false);
+  React.useEffect(() => {
+    if (hadActiveCall.current && !hasActiveCall) {
+      void refetchPool();
+    }
+    hadActiveCall.current = hasActiveCall;
+  }, [hasActiveCall, refetchPool]);
+
   // На карте только то, что относится к оператору: активный вызов и предложение.
   const markers = React.useMemo(() => {
     const items: Array<{ session: EmergencySession; latitude: number; longitude: number }> = [];
     for (const session of [activeCall, offer]) {
       if (!session) continue;
       const live = liveLocationsBySessionId[session.id];
-      const point = live ?? coordsOf(session);
+      const point = live ?? sessionCoords(session);
       if (point) items.push({ session, ...point });
     }
     return items;
@@ -177,13 +184,27 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     }
   }, [activeCall, upsertActiveSession]);
 
-  const openDetails = React.useCallback(
-    (session: EmergencySession) => {
-      setSelectedSession(session);
-      navigation.navigate("OperatorSessionDetails", { sessionId: session.id });
-    },
-    [navigation, setSelectedSession],
+  /** Сколько свободных вызовов ждёт помимо того, что предложен сейчас. */
+  const queued = Math.max(0, poolCount - (offer ? 1 : 0));
+
+  const openCalls = React.useMemo(
+    () => Object.values(activeSessionsById).filter((s) => s.status !== "CLOSED").length,
+    [activeSessionsById],
   );
+
+  // Смена сдавалась одним касанием: промах — и вызовы идут мимо оператора молча.
+  const confirmEndShift = React.useCallback(() => {
+    Alert.alert(
+      ru.operatorShift.endConfirmTitle,
+      openCalls > 0
+        ? ru.operatorShift.endConfirmBusy.replace("{count}", String(openCalls))
+        : ru.operatorShift.endConfirmMsg,
+      [
+        { text: ru.operatorShift.endConfirmCancel, style: "cancel" },
+        { text: ru.operatorShift.endConfirmOk, style: "destructive", onPress: toggleShift },
+      ],
+    );
+  }, [openCalls, toggleShift]);
 
   const shiftSince = shiftStartedAt
     ? new Date(shiftStartedAt).toLocaleTimeString(undefined, {
@@ -216,7 +237,7 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
                   : tokens.status.IN_PROGRESS.border
               }
               title={m.session.venue?.name ?? ru.operatorScreens.markerEmergency}
-              onPress={() => openDetails(m.session)}
+              description={m.session.user?.phone ?? m.session.user?.email ?? undefined}
             />
           ))}
         </MapView>
@@ -243,8 +264,15 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
               ? `${ru.operatorShift.onShift} · ${shiftSince}`
               : ru.operatorShift.onShift}
           </Text>
+          {queued > 0 ? (
+            <View style={[styles.queueBadge, { backgroundColor: tokens.colors.danger + "22" }]}>
+              <Text style={[styles.queueText, { color: tokens.colors.danger }]}>
+                {ru.operatorPool.queueMore.replace("{count}", String(queued))}
+              </Text>
+            </View>
+          ) : null}
           <Pressable
-            onPress={toggleShift}
+            onPress={confirmEndShift}
             disabled={isToggling}
             hitSlop={10}
             accessibilityRole="button"
@@ -255,22 +283,40 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
           </Pressable>
         </View>
 
-        <Pressable
-          onPress={centerOnMe}
-          disabled={!operatorLocation}
-          accessibilityRole="button"
-          accessibilityLabel={ru.operatorScreens.me}
-          style={[
-            styles.fab,
-            {
-              backgroundColor: tokens.colors.surface + "F2",
-              borderColor: tokens.colors.border,
-              opacity: operatorLocation ? 1 : 0.5,
-            },
-          ]}
-        >
-          <Crosshair size={20} color={tokens.colors.onSurface} strokeWidth={2} />
-        </Pressable>
+        <View style={styles.topActions}>
+          <Pressable
+            onPress={() => rootNavigation.navigate("Common", { screen: "Profile" })}
+            accessibilityRole="button"
+            accessibilityLabel={ru.operatorScreens.profile}
+            style={[
+              styles.fab,
+              { backgroundColor: tokens.colors.surface + "F2", borderColor: tokens.colors.border },
+            ]}
+          >
+            <UserRound size={20} color={tokens.colors.onSurface} strokeWidth={2} />
+          </Pressable>
+
+          <Pressable
+            onPress={centerOnMe}
+            disabled={!operatorLocation}
+            accessibilityRole="button"
+            accessibilityLabel={ru.operatorScreens.me}
+            style={[
+              styles.fab,
+              {
+                backgroundColor: tokens.colors.surface + "F2",
+                borderColor: tokens.colors.border,
+                opacity: operatorLocation ? 1 : 0.5,
+              },
+            ]}
+          >
+            <Crosshair size={20} color={tokens.colors.onSurface} strokeWidth={2} />
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={[styles.banner, { top: insets.top + 62 }]} pointerEvents="box-none">
+        <ConnectionBanner />
       </View>
 
       <View style={[styles.bottom, { bottom: insets.bottom + 12 }]} pointerEvents="box-none">
@@ -282,7 +328,6 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
             onResolve={() =>
               navigation.navigate("OperatorResolveModal", { sessionId: activeCall.id })
             }
-            onDetails={() => openDetails(activeCall)}
           />
         ) : null}
 
@@ -336,6 +381,9 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 999 },
   shiftText: { fontSize: 13, fontWeight: "700" },
   endShift: { padding: 4 },
+  queueBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  queueText: { fontSize: 11, fontWeight: "800" },
+  topActions: { flexDirection: "row", gap: 8 },
   fab: {
     width: 40,
     height: 40,
@@ -344,6 +392,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  banner: { position: "absolute", left: 12, right: 12, alignItems: "center" },
   bottom: { position: "absolute", left: 12, right: 12, gap: 10 },
   idle: {
     borderRadius: 999,

@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -8,11 +8,13 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { MapPin, User } from "lucide-react-native";
+import { MapPin, Phone, User } from "lucide-react-native";
 import { EmergencySession } from "../../types/emergency";
 import { ActionButton } from "../ui/ActionButton";
 import { useAppTheme } from "../../theme";
 import { formatElapsed } from "../../utils/date";
+import { sessionCaller, venueEntry } from "../../utils/emergencySession";
+import { callPhone } from "../../utils/externalApps";
 import { ru } from "../../locale/ru";
 
 /** Смещение вниз, после которого карточка считается смахнутой. */
@@ -24,18 +26,6 @@ interface Props {
   onAccept: () => void;
   onDismiss: () => void;
 }
-
-const venueLine = (session: EmergencySession) => {
-  const venue = session.venue;
-  if (!venue) return null;
-  const details = [
-    venue.entrance && `${ru.operatorPool.entrance} ${venue.entrance}`,
-    venue.floor && `${ru.operatorPool.floor} ${venue.floor}`,
-    venue.apartment && `${ru.operatorPool.apartment} ${venue.apartment}`,
-    venue.doorCode && `${ru.operatorPool.doorCode} ${venue.doorCode}`,
-  ].filter(Boolean);
-  return { title: venue.name ?? venue.address ?? "", details: details.join(" · ") };
-};
 
 /**
  * Предложение вызова — как заказ в такси: прилетает поверх карты, принимается
@@ -72,9 +62,9 @@ export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) 
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 
   const isVenue = session.emergencyType === "VENUE";
-  const venue = venueLine(session);
-  const who =
-    session.user?.displayName || session.user?.email || ru.operatorScreens.unknownUser;
+  const venue = venueEntry(session);
+  const who = sessionCaller(session);
+  const phone = session.user?.phone ?? null;
 
   return (
     <GestureDetector gesture={pan}>
@@ -119,9 +109,23 @@ export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) 
               {who}
             </Text>
             <Text style={[styles.secondary, { color: tokens.colors.onSurfaceMuted }]}>
-              {session.user?.phone || ru.operatorPool.noPhone}
+              {phone || ru.operatorPool.noPhone}
             </Text>
           </View>
+          {phone ? (
+            <Pressable
+              onPress={() => callPhone(phone)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={ru.operatorScreens.callA11y}
+              style={[
+                styles.callBtn,
+                { backgroundColor: tokens.colors.surfaceVariant, borderColor: tokens.colors.border },
+              ]}
+            >
+              <Phone size={18} color={tokens.colors.onSurface} strokeWidth={2} />
+            </Pressable>
+          ) : null}
         </View>
 
         <ActionButton
@@ -157,6 +161,14 @@ const styles = StyleSheet.create({
   timer: { fontSize: 22, fontWeight: "800", fontVariant: ["tabular-nums"] },
   row: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   rowText: { flex: 1, gap: 2 },
+  callBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   primary: { fontSize: 16, fontWeight: "700" },
   secondary: { fontSize: 13 },
   hint: { fontSize: 12, textAlign: "center" },

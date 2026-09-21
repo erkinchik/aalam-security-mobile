@@ -19,7 +19,13 @@ export const socketService = {
     }
 
     socket = io(`${ENV.wsUrl}/ws`, {
-      transports: ["websocket"],
+      // Порядок именно такой. Чистый websocket в Expo Go срывается с
+      // «websocket error», а engine.io переходит к следующему транспорту только
+      // при tryAllTransports (по умолчанию выключен) — из-за этого приложение
+      // оставалось вообще без событий. polling поднимает соединение сразу,
+      // после чего engine.io сам апгрейдит его до websocket, если тот доступен.
+      transports: ["polling", "websocket"],
+      tryAllTransports: true,
       auth: { token },
       reconnection: true,
       reconnectionAttempts: Infinity,

@@ -92,6 +92,35 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
     }
 
     let cancelled = false;
+    let foregroundTimer: ReturnType<typeof setInterval> | null = null;
+
+    /**
+     * Запасной путь, когда фоновая задача недоступна: в Expo Go
+     * startLocationUpdatesAsync не работает вовсе, а в обычной сборке
+     * пользователь мог не дать фоновое разрешение. Без него сессия уходила
+     * оператору без единой координаты — на карте не появлялось ничего.
+     */
+    const sendOnce = async () => {
+      const latest = useEmergencyStore.getState().activeSession;
+      if (!latest?.id || latest.status === "CLOSED" || latest.id !== activeSessionId) return;
+      try {
+        setSendingLocation(true);
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        await emergencyApi.sendLocation(activeSessionId, {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? 10,
+        });
+        markLocationSent();
+      } catch {
+        // Сеть или GPS подвели — следующий тик попробует снова.
+      } finally {
+        setSendingLocation(false);
+      }
+    };
+
     const bootstrap = async () => {
       const current = await Location.getForegroundPermissionsAsync();
       const granted = current.status === "granted"
@@ -100,13 +129,18 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
       if (!granted || cancelled) {
         return;
       }
-      await locationTrackingService.start(intervalMs);
+      const backgroundStarted = await locationTrackingService.start(intervalMs);
+      if (cancelled || backgroundStarted) return;
+
+      void sendOnce();
+      foregroundTimer = setInterval(() => void sendOnce(), intervalMs);
     };
 
     void bootstrap();
 
     return () => {
       cancelled = true;
+      if (foregroundTimer) clearInterval(foregroundTimer);
       void locationTrackingService.stop();
     };
   }, [

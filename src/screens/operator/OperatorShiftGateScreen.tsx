@@ -1,15 +1,11 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ShieldCheck } from "lucide-react-native";
-import { RootStackParamList } from "../../navigation/types";
 import { useOperatorShift } from "../../hooks/useOperatorShift";
 import { useAuthStore } from "../../stores/authStore";
 import { ShiftSlider } from "../../components/operator/ShiftSlider";
-import { ActionButton } from "../../components/ui/ActionButton";
-import { OperatorHeartbeatStatusScreen } from "./OperatorHeartbeatStatusScreen";
+import { ConnectionBanner } from "../../components/operator/ConnectionBanner";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
 
@@ -19,20 +15,13 @@ import { ru } from "../../locale/ru";
  */
 export const OperatorShiftGateScreen = () => {
   const { tokens } = useAppTheme();
-  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { toggleShift, isToggling, isLoading } = useOperatorShift();
   const user = useAuthStore((state) => state.user);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.header}>
-        <OperatorHeartbeatStatusScreen />
-        <ActionButton
-          variant="ghost"
-          size="small"
-          label={ru.operatorScreens.profile}
-          onPress={() => rootNavigation.navigate("Common", { screen: "Profile" })}
-        />
+        <ConnectionBanner />
       </View>
 
       <View style={styles.center}>
@@ -66,12 +55,7 @@ export const OperatorShiftGateScreen = () => {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 8,
-  },
+  header: { alignItems: "center", paddingTop: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   badge: {
     width: 96,

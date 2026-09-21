@@ -50,19 +50,7 @@ export type OperatorTabParamList = {
 export type OperatorStackParamList = {
   OperatorShiftGate: undefined;
   OperatorTabs: NavigatorScreenParams<OperatorTabParamList> | undefined;
-  OperatorSessionDetails: { sessionId: string };
-  OperatorLiveMap: { sessionId: string };
   OperatorResolveModal: { sessionId: string };
-};
-
-export type AdminTabParamList = {
-  Home: undefined;
-};
-
-export type AdminStackParamList = {
-  AdminTabs: undefined;
-  AdminCreateOperator: undefined;
-  AdminCreateOperatorSuccess: undefined;
 };
 
 export type RootStackParamList = {

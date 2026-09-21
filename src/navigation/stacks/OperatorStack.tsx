@@ -3,8 +3,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { OperatorStackParamList } from "../types";
 import { OperatorTabs } from "../tabs/OperatorTabs";
 import { OperatorShiftGateScreen } from "../../screens/operator/OperatorShiftGateScreen";
-import { OperatorSessionDetailsScreen } from "../../screens/operator/OperatorSessionDetailsScreen";
-import { OperatorLiveMapScreen } from "../../screens/operator/OperatorLiveMapScreen";
 import { OperatorResolveModalScreen } from "../../screens/operator/OperatorResolveModalScreen";
 import { useOperatorStore } from "../../stores/operatorStore";
 import { appStackScreenOptions } from "../ui/AppStackShell";
@@ -46,16 +44,6 @@ export const OperatorStack = () => {
   return (
     <Stack.Navigator screenOptions={appStackScreenOptions}>
       <Stack.Screen name="OperatorTabs" component={OperatorTabs} options={{ headerShown: false }} />
-      <Stack.Screen
-        name="OperatorSessionDetails"
-        component={OperatorSessionDetailsScreen}
-        options={{ title: ru.nav.sessionDetails }}
-      />
-      <Stack.Screen
-        name="OperatorLiveMap"
-        component={OperatorLiveMapScreen}
-        options={{ title: ru.nav.liveMap }}
-      />
       <Stack.Screen
         name="OperatorResolveModal"
         component={OperatorResolveModalScreen}
