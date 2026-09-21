@@ -17,6 +17,7 @@ import { authApi } from "../../api/modules/auth";
 import { AppInput } from "../../components/ui/AppInput";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { toastBus } from "../../ui/feedback/toastBus";
+import { handleApiError } from "../../utils/error/handleApiError";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
 
@@ -46,8 +47,11 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
         severity: "success",
       });
       navigation.navigate("Login");
-    } catch {
-      toastBus.show({ message: ru.auth.requestFailed, severity: "error" });
+    } catch (error) {
+      // Сервер отвечает кодом PASSWORD_RESET_UNAVAILABLE, пока не подключён
+      // почтовый провайдер, — показываем его текст, а не общий «сбой».
+      const { message } = handleApiError(error);
+      toastBus.show({ message: message || ru.auth.requestFailed, severity: "error" });
     }
   };
 

@@ -27,8 +27,14 @@ export const useAcceptSession = () => {
         toastBus.show({ message: ru.operatorPool.acceptedToast, severity: "success" });
         return true;
       } catch (error) {
-        const { status, message } = handleApiError(error);
-        const lost = status === 409 || status === 404;
+        const { status, code, message } = handleApiError(error);
+        // Вызов забрали или закрыли — карточке в пуле больше не место. Остальные
+        // отказы (например «сначала закройте свой») оставляют его свободным.
+        const lost =
+          code === "SESSION_ALREADY_CLAIMED" ||
+          code === "SESSION_NOT_FOUND" ||
+          code === "SESSION_ALREADY_CLOSED" ||
+          status === 404;
         toastBus.show({
           message: lost ? ru.operatorPool.takenByOther : message,
           severity: lost ? "info" : "error",
