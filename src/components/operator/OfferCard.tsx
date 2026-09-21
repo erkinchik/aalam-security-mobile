@@ -17,8 +17,11 @@ import { sessionCaller, venueEntry } from "../../utils/emergencySession";
 import { callPhone } from "../../utils/externalApps";
 import { ru } from "../../locale/ru";
 
-/** Смещение вниз, после которого карточка считается смахнутой. */
-const DISMISS_DISTANCE = 90;
+/**
+ * Смещение вниз, после которого карточка считается смахнутой. 90 px смахивали
+ * вызов случайно — при попытке нажать «Принять» или просто взять телефон.
+ */
+const DISMISS_DISTANCE = 140;
 
 interface Props {
   session: EmergencySession;
@@ -29,8 +32,8 @@ interface Props {
 
 /**
  * Предложение вызова — как заказ в такси: прилетает поверх карты, принимается
- * одной кнопкой, смахивается вниз. Списка вызовов в интерфейсе нет, поэтому
- * после смахивания сразу предлагается следующий свободный вызов.
+ * одной кнопкой, смахивается вниз. После смахивания предлагается следующий
+ * свободный вызов, а смахнутый остаётся в очереди — её открывает бейдж.
  */
 export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) => {
   const { tokens } = useAppTheme();
@@ -46,6 +49,10 @@ export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) 
 
   const pan = Gesture.Pan()
     .enabled(!isAccepting)
+    // Жест включается только после явного движения вниз: касание кнопок и
+    // горизонтальный сдвиг пальца карточку не трогают.
+    .activeOffsetY(20)
+    .failOffsetX([-20, 20])
     .onChange((e) => {
       // Тянуть можно только вниз: вверх карточке ехать некуда.
       translateY.value = Math.max(0, translateY.value + e.changeY);

@@ -4,6 +4,7 @@ import { OperatorStackParamList } from "../types";
 import { OperatorTabs } from "../tabs/OperatorTabs";
 import { OperatorShiftGateScreen } from "../../screens/operator/OperatorShiftGateScreen";
 import { OperatorResolveModalScreen } from "../../screens/operator/OperatorResolveModalScreen";
+import { OperatorQueueModalScreen } from "../../screens/operator/OperatorQueueModalScreen";
 import { useOperatorStore } from "../../stores/operatorStore";
 import { appStackScreenOptions } from "../ui/AppStackShell";
 import { ru } from "../../locale/ru";
@@ -48,6 +49,11 @@ export const OperatorStack = () => {
         name="OperatorResolveModal"
         component={OperatorResolveModalScreen}
         options={{ title: ru.nav.resolveSession, presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="OperatorQueueModal"
+        component={OperatorQueueModalScreen}
+        options={{ title: ru.operatorPool.queueTitle, presentation: "modal" }}
       />
     </Stack.Navigator>
   );

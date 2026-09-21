@@ -51,6 +51,7 @@ export type OperatorStackParamList = {
   OperatorShiftGate: undefined;
   OperatorTabs: NavigatorScreenParams<OperatorTabParamList> | undefined;
   OperatorResolveModal: { sessionId: string };
+  OperatorQueueModal: undefined;
 };
 
 export type RootStackParamList = {
