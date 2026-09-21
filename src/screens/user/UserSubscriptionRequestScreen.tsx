@@ -21,6 +21,7 @@ import {
   SubscriptionRequest,
 } from "../../api/modules/subscriptionRequest";
 import { toastBus } from "../../ui/feedback/toastBus";
+import { useAuthStore } from "../../stores/authStore";
 
 type Props = NativeStackScreenProps<
   UserStackParamList,
@@ -47,11 +48,21 @@ export const UserSubscriptionRequestScreen = ({ navigation }: Props) => {
   const [refreshing, setRefreshing] = React.useState(false);
   const [comment, setComment] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  // Активна ли подписка — решает профиль, а не статус заявки: заявка остаётся
+  // APPROVED навсегда, а подписка выдаётся на срок. Раньше после окончания
+  // срока экран показывал «Подписка активна» без формы, и продлить было нельзя.
+  const profile = useAuthStore((state) => state.user);
+  const subActive = profile?.individualSubscriptionActive === true;
 
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const data = await subscriptionRequestApi.getCurrent();
+      // Профиль перечитываем вместе с заявкой: срок мог истечь, пока экран
+      // был закрыт.
+      const [data] = await Promise.all([
+        subscriptionRequestApi.getCurrent(),
+        useAuthStore.getState().refreshMe(),
+      ]);
       setRequest(data);
     } catch {
       toastBus.show({
@@ -170,7 +181,7 @@ export const UserSubscriptionRequestScreen = ({ navigation }: Props) => {
     </AppCard>
   );
 
-  const renderApprovedCard = (req: SubscriptionRequest) => (
+  const renderApprovedCard = (until: string | null) => (
     <AppCard accent={tokens.colors.success ?? "#22C55E"}>
       <Text style={[styles.title, { color: tokens.colors.onSurface }]}>
         {ru.subscriptionRequest.approvedTitle}
@@ -180,10 +191,29 @@ export const UserSubscriptionRequestScreen = ({ navigation }: Props) => {
           {ru.subscriptionRequest.approvedUntil}
         </Text>
         <Text style={[styles.kvVal, { color: tokens.colors.onSurface }]}>
-          {formatDate(req.expiresAt)}
+          {formatDate(until)}
         </Text>
       </View>
     </AppCard>
+  );
+
+  const renderExpiredCard = (endedAt: string | null) => (
+    <>
+      <AppCard accent={tokens.colors.danger}>
+        <Text style={[styles.title, { color: tokens.colors.onSurface }]}>
+          {ru.subscriptionRequest.expiredTitle}
+        </Text>
+        <View style={styles.kvRow}>
+          <Text style={[styles.kvKey, { color: tokens.colors.onSurfaceMuted }]}>
+            {ru.subscriptionRequest.expiredOn}
+          </Text>
+          <Text style={[styles.kvVal, { color: tokens.colors.onSurface }]}>
+            {formatDate(endedAt)}
+          </Text>
+        </View>
+      </AppCard>
+      {renderFormCard()}
+    </>
   );
 
   const renderRejectedCard = (req: SubscriptionRequest) => (
@@ -214,13 +244,17 @@ export const UserSubscriptionRequestScreen = ({ navigation }: Props) => {
         <ActivityIndicator color={tokens.colors.primary} />
       </View>
     );
-  } else if (!request || request.status === "REJECTED") {
-    body =
-      !request ? renderFormCard() : renderRejectedCard(request);
-  } else if (request.status === "PENDING") {
+  } else if (request?.status === "PENDING") {
     body = renderPendingCard(request);
+  } else if (subActive) {
+    body = renderApprovedCard(profile?.subscriptionExpiresAt ?? request?.expiresAt ?? null);
+  } else if (request?.status === "REJECTED") {
+    body = renderRejectedCard(request);
+  } else if (request?.status === "APPROVED") {
+    // Одобренная заявка при неактивной подписке — срок вышел, нужна новая.
+    body = renderExpiredCard(profile?.subscriptionExpiresAt ?? request.expiresAt);
   } else {
-    body = renderApprovedCard(request);
+    body = renderFormCard();
   }
 
   return (

@@ -451,6 +451,8 @@ export const ru = {
     pendingComment: "Комментарий:",
     approvedTitle: "Подписка активна",
     approvedUntil: "Действует до",
+    expiredTitle: "Подписка закончилась",
+    expiredOn: "Закончилась",
     rejectedTitle: "Заявка отклонена",
     rejectedReason: "Причина:",
     rejectedRetry: "Отправить заявку повторно",

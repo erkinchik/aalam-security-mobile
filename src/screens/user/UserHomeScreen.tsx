@@ -63,7 +63,17 @@ export const UserHomeScreen = ({ navigation }: Props) => {
   const currentVenueId = useUserSessionStore((state) => state.currentVenueId);
   const currentVenueName = useUserSessionStore((state) => state.currentVenueName);
   const hasIndividualSubscription = useUserSessionStore((state) => state.hasIndividualSubscription);
+  const setIndividualSubscription = useUserSessionStore((state) => state.setIndividualSubscription);
   const profileUser = useAuthStore((state) => state.user);
+
+  // Локальный флаг — лишь кэш для старта без сети, правду знает сервер. Без
+  // синхронизации флаг от демо-активации переживал конец подписки: главный
+  // экран считал SOS доступным, не предлагал продлить, а сервер отказывал.
+  React.useEffect(() => {
+    if (!profileUser) return;
+    const active = profileUser.individualSubscriptionActive === true;
+    if (active !== hasIndividualSubscription) void setIndividualSubscription(active);
+  }, [profileUser, hasIndividualSubscription, setIndividualSubscription]);
   const isBootstrapped = useAuthStore((state) => state.isBootstrapped);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const userId = useAuthStore((state) => state.user?.id);
