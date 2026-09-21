@@ -1,57 +1,51 @@
 import { create } from "zustand";
-import { EmergencyLocation, EmergencySession } from "../types/emergency";
+import type { EmergencyLocation, EmergencySession } from "../types/emergency";
 
 type SessionMap = Record<string, EmergencySession>;
 type LocationMap = Record<string, EmergencyLocation>;
+
+/**
+ * Сколько смахнутое предложение не показывается снова. Достаточно, чтобы оно не
+ * мигало перед оператором, и достаточно мало, чтобы вызов не потерялся, когда
+ * дежурный на линии один.
+ */
+export const SKIP_COOLDOWN_MS = 120_000;
 
 /** Свободный вызов — ещё не принят никем. */
 const isUnclaimed = (session: EmergencySession) =>
   session.status === "NEW" && !session.assignedOperatorId;
 
 interface OperatorState {
-  selectedSession: EmergencySession | null;
-  highlightedSessionId: string | null;
-  liveLocation: EmergencyLocation | null;
   activeSessionsById: SessionMap;
   liveLocationsBySessionId: LocationMap;
-  heartbeatLastSentAt: string | null;
   /** Свободные вызовы, доступные к приёму. */
   poolById: SessionMap;
   isOnShift: boolean;
   shiftStartedAt: string | null;
   /** Пришёл ли ответ сервера о смене. До этого показывать шлагбаум нельзя. */
   isShiftResolved: boolean;
-  /** Вызовы, которые оператор смахнул: не предлагаем их повторно за эту смену. */
-  skippedSessionIds: string[];
-  setSelectedSession: (session: EmergencySession | null) => void;
-  setHighlightedSessionId: (sessionId: string | null) => void;
-  setLiveLocation: (location: EmergencyLocation | null) => void;
+  /**
+   * Смахнутые вызовы: id → момент, когда предложение можно показать снова.
+   * Раньше это был простой список на всю смену, и вызов, смахнутый единственным
+   * дежурным, повисал в пуле до вмешательства админа.
+   */
+  skippedUntil: Record<string, number>;
   setLiveLocationForSession: (sessionId: string, location: EmergencyLocation) => void;
   upsertActiveSession: (session: EmergencySession) => void;
   removeActiveSession: (sessionId: string) => void;
-  markHeartbeatSent: () => void;
   /** Кладёт в пул, если вызов свободен, иначе убирает — по одному правилу. */
   syncPoolSession: (session: EmergencySession) => void;
   removePoolSession: (sessionId: string) => void;
   setShift: (shift: { onShift: boolean; shiftStartedAt: string | null }) => void;
   /** Смахнуть текущее предложение — следующим предложится другой вызов. */
   skipOffer: (sessionId: string) => void;
+  /** Убирает отлежавшиеся пропуски, чтобы вызов снова стал предлагаться. */
+  expireSkips: () => void;
 }
 
 export const useOperatorStore = create<OperatorState>((set) => ({
-  selectedSession: null,
-  highlightedSessionId: null,
-  liveLocation: null,
   activeSessionsById: {},
   liveLocationsBySessionId: {},
-  heartbeatLastSentAt: null,
-  setSelectedSession: (selectedSession) =>
-    set({
-      selectedSession,
-      highlightedSessionId: selectedSession?.id ?? null,
-    }),
-  setHighlightedSessionId: (highlightedSessionId) => set({ highlightedSessionId }),
-  setLiveLocation: (liveLocation) => set({ liveLocation }),
   setLiveLocationForSession: (sessionId, location) =>
     set((state) => ({
       liveLocationsBySessionId: {
@@ -76,12 +70,11 @@ export const useOperatorStore = create<OperatorState>((set) => ({
       delete next[sessionId];
       return { activeSessionsById: next };
     }),
-  markHeartbeatSent: () => set({ heartbeatLastSentAt: new Date().toISOString() }),
   poolById: {},
   isOnShift: false,
   shiftStartedAt: null,
   isShiftResolved: false,
-  skippedSessionIds: [],
+  skippedUntil: {},
   syncPoolSession: (session) =>
     set((state) => {
       const alreadyInPool = Boolean(state.poolById[session.id]);
@@ -113,26 +106,47 @@ export const useOperatorStore = create<OperatorState>((set) => ({
             shiftStartedAt: null,
             isShiftResolved: true,
             poolById: {},
-            skippedSessionIds: [],
+            skippedUntil: {},
           },
     ),
   skipOffer: (sessionId) =>
-    set((state) =>
-      state.skippedSessionIds.includes(sessionId)
+    set((state) => ({
+      skippedUntil: {
+        ...state.skippedUntil,
+        [sessionId]: Date.now() + SKIP_COOLDOWN_MS,
+      },
+    })),
+  expireSkips: () =>
+    set((state) => {
+      const now = Date.now();
+      const next = Object.fromEntries(
+        Object.entries(state.skippedUntil).filter(([, until]) => until > now),
+      );
+      return Object.keys(next).length === Object.keys(state.skippedUntil).length
         ? state
-        : { skippedSessionIds: [...state.skippedSessionIds, sessionId] },
-    ),
+        : { skippedUntil: next };
+    }),
 }));
 
 /**
  * Текущее предложение — самый давний свободный вызов, который оператор ещё не
  * смахнул. Списка вызовов в интерфейсе нет, поэтому пул проявляется только
  * через эту карточку: смахнул одну — сразу предлагается следующая.
+ *
+ * Занятому оператору не предлагается ничего. Сервер и так перестаёт слать ему
+ * новые вызовы, но принятие происходит на клиенте раньше, чем приходит ответ,
+ * и без этой проверки карточка предложения на мгновение оставалась бы поверх
+ * только что принятого вызова.
  */
 export const selectCurrentOffer = (state: OperatorState): EmergencySession | null => {
   if (!state.isOnShift) return null;
+  const hasOpenCall = Object.values(state.activeSessionsById).some(
+    (session) => session.status !== "CLOSED",
+  );
+  if (hasOpenCall) return null;
+  const now = Date.now();
   const candidates = Object.values(state.poolById).filter(
-    (session) => !state.skippedSessionIds.includes(session.id),
+    (session) => (state.skippedUntil[session.id] ?? 0) <= now,
   );
   if (candidates.length === 0) return null;
   return candidates.reduce((oldest, session) =>

@@ -19,6 +19,9 @@ import { useEmergencyLocationSender } from "./hooks/useEmergencyLocationSender";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useOperatorShift } from "./hooks/useOperatorShift";
+import { useOfferAlarm } from "./hooks/useOfferAlarm";
+import { useSkipCooldown } from "./hooks/useSkipCooldown";
+import { useKeepAwakeDuringCall } from "./hooks/useKeepAwakeDuringCall";
 import { AppErrorBoundary } from "./components/error/AppErrorBoundary";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { BackgroundLocationPrompt } from "./components/sos/BackgroundLocationPrompt";
@@ -44,6 +47,9 @@ const AppInner = () => {
   useEmergencyLocationSender(5000);
   useHeartbeat(15000);
   useOperatorShift();
+  useOfferAlarm();
+  useSkipCooldown();
+  useKeepAwakeDuringCall();
   usePushNotifications();
 
   if (!fontsLoaded) {
