@@ -7,7 +7,7 @@ import { AuthStack } from "./stacks/AuthStack";
 import { CommonStack } from "./stacks/CommonStack";
 import { UserStack } from "./stacks/UserStack";
 import { OperatorStack } from "./stacks/OperatorStack";
-import { AdminStack } from "./stacks/AdminStack";
+import { AdminOnWebScreen } from "../screens/common/AdminOnWebScreen";
 import { AuthGuard } from "./guards/AuthGuard";
 import { navigationRef } from "./navigationRef";
 import { SplashScreen } from "../screens/common/SplashScreen";
@@ -74,7 +74,7 @@ export const RootNavigator = () => {
               name="Admin"
               children={() => (
                 <AuthGuard roles={["ADMIN"]}>
-                  <AdminStack />
+                  <AdminOnWebScreen />
                 </AuthGuard>
               )}
             />
