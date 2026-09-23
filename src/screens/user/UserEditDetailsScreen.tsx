@@ -11,6 +11,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { AppInput } from "../../components/ui/AppInput";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { toastBus } from "../../ui/feedback/toastBus";
+import { handleApiError } from "../../utils/error/handleApiError";
 import { spacing } from "../../theme";
 import { useAppTheme } from "../../theme";
 import {
@@ -22,7 +23,7 @@ import type { UpdateUserMePayload } from "../../types/user";
 import { ru } from "../../locale/ru";
 
 const schema = z.object({
-  displayName: z.string().trim().min(1, ru.validation.nameRequired),
+  displayName: z.string().trim().min(1, ru.validation.nameRequired).max(120, ru.validation.nameTooLong),
   phone: kyrgyzPhoneRequiredSchema,
 });
 
@@ -65,8 +66,12 @@ export const UserEditDetailsScreen = ({ navigation }: Props) => {
       setUser(updated);
       toastBus.show({ message: ru.editDetails.saved, severity: "success" });
       navigation.goBack();
-    } catch {
-      toastBus.show({ message: ru.editDetails.failed, severity: "error" });
+    } catch (error) {
+      // Причину показываем, если она понятна: нет сети, известный код или
+      // ошибка валидации. Серверный текст про 5xx пользователю ничего не скажет.
+      const { status, code, message } = handleApiError(error);
+      const readable = status === undefined || status === 400 || (code && ru.errorCodes[code]);
+      toastBus.show({ message: readable ? message : ru.editDetails.failed, severity: "error" });
     }
   };
 

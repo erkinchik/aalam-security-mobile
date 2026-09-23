@@ -10,13 +10,22 @@ export const handleApiError = (
   error: unknown,
 ): { status?: number; code?: string; message: string } => {
   if (error instanceof AxiosError) {
-    const status = error.response?.status;
-    const data = error.response?.data as
-      | { code?: string; message?: string | string[]; error?: string }
+    // Ответа нет вовсе — сеть или таймаут. Axios отдаёт английское «Network
+    // Error», а экраны принимали его за «неверный пароль».
+    if (!error.response) {
+      return { message: ru.errors.noConnection };
+    }
+    const status = error.response.status;
+    const data = error.response.data as
+      | { code?: string; message?: string | string[]; error?: string; errors?: string[] }
       | undefined;
-    const serverMessage = Array.isArray(data?.message)
-      ? data.message.join(", ")
-      : data?.message || data?.error || error.message;
+    // Подробности валидации сервер кладёт в errors, а в message — общее
+    // «Validation failed».
+    const serverMessage = data?.errors?.length
+      ? data.errors.join(", ")
+      : Array.isArray(data?.message)
+        ? data.message.join(", ")
+        : data?.message || data?.error || error.message;
     const localized = data?.code ? ru.errorCodes[data.code] : undefined;
     return { status, code: data?.code, message: localized ?? serverMessage };
   }

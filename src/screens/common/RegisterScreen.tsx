@@ -25,6 +25,7 @@ import {
   kyrgyzPhoneRequiredSchema,
   sanitizeKyrgyzPhoneInput,
 } from "../../lib/kyrgyzPhone";
+import { handleApiError } from "../../utils/error/handleApiError";
 
 const schema = z
   .object({
@@ -67,8 +68,13 @@ export const RegisterScreen = ({ navigation }: Props) => {
     try {
       await register(values.email, values.password, sanitizeKyrgyzPhoneInput(values.phone));
       toastBus.show({ message: ru.auth.accountCreated, severity: "success" });
-    } catch {
-      toastBus.show({ message: ru.auth.registerFailed, severity: "error" });
+    } catch (err: unknown) {
+      // «Email уже зарегистрирован» и «нет сети» теперь различимы; остальное —
+      // общий текст, серверный английский пользователю не показываем.
+      const { status, code, message } = handleApiError(err);
+      const text =
+        status === undefined || (code && ru.errorCodes[code]) ? message : ru.auth.registerFailed;
+      toastBus.show({ message: text, severity: "error" });
     }
   };
 

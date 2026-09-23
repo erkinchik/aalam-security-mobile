@@ -21,6 +21,7 @@ import { useUserSessionStore } from "../../stores/userSessionStore";
 import { toastBus } from "../../ui/feedback/toastBus";
 import { BackNavLink } from "../../components/navigation/BackNavLink";
 import { ru } from "../../locale/ru";
+import { handleApiError } from "../../utils/error/handleApiError";
 
 type Props = NativeStackScreenProps<UserStackParamList, "UserBindVenue">;
 
@@ -75,9 +76,21 @@ export const BindVenueScreen = ({ navigation }: Props) => {
         toastBus.show({ message: `${ru.bindVenue.joinedPrefix} ${result.name}`, severity: "success" });
       }
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
-    } catch {
-      toastBus.show({ message: ru.bindVenue.invalidCode, severity: "error" });
-      setError(ru.bindVenue.invalidCode);
+    } catch (err: unknown) {
+      // Не каждый отказ — неверный код: без сети человек перепроверял код, а
+      // дело было в связи.
+      const { status, code, message } = handleApiError(err);
+      const text =
+        status === 429
+          ? ru.auth.tooManyAttempts
+          : status === 404 || status === 400
+            ? ru.bindVenue.invalidCode
+            : // Нет сети, известный код или отказ владельцу — у сервера русский текст.
+              status === undefined || status === 409 || (code && ru.errorCodes[code])
+              ? message
+              : ru.bindVenue.invalidCode;
+      toastBus.show({ message: text, severity: "error" });
+      setError(text);
     } finally {
       setLoading(false);
     }
@@ -152,7 +165,7 @@ export const BindVenueScreen = ({ navigation }: Props) => {
                 { borderColor: P.successBorder, backgroundColor: P.successBg },
               ]}
             >
-              <Text style={[styles.successTag, { color: P.successLabel }]}>Success</Text>
+              <Text style={[styles.successTag, { color: P.successLabel }]}>{ru.bindVenue.successTag}</Text>
               <Text style={[styles.successMsg, { color: P.successBody }]}>
                 {joinedOrgName
                   ? `${ru.bindVenue.successOrgJoined} ${joinedOrgName}.`
