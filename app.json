@@ -9,6 +9,20 @@
           "defaultChannel": "sos-emergency",
           "enableBackgroundRemoteNotifications": true
         }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Приложение не записывает звук. Доступ к микрофону не запрашивается."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Геолокация нужна, чтобы во время SOS передавать ваши координаты дежурным.",
+          "locationAlwaysAndWhenInUsePermission": "Во время активного SOS координаты передаются дежурным, даже если приложение свёрнуто или экран заблокирован.",
+          "locationAlwaysPermission": "Во время активного SOS координаты передаются дежурным, даже если приложение свёрнуто или экран заблокирован."
+        }
       ]
     ],
     "version": "1.1.1",
@@ -33,10 +47,11 @@
         "tinted": "./assets/icons/ios-tinted.png"
       },
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We use your location to share live emergency coordinates with responders.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "We use your location during an active SOS session to help responders track your position even while the app is in the background.",
-        "NSMicrophoneUsageDescription": "Microphone access is required for emergency audio cues; recording is disabled.",
-        "UIBackgroundModes": ["location"],
+        "NSLocationWhenInUseUsageDescription": "Геолокация нужна, чтобы во время SOS передавать ваши координаты дежурным.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Во время активного SOS координаты передаются дежурным, даже если приложение свёрнуто или экран заблокирован.",
+        "UIBackgroundModes": [
+          "location"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       },
       "privacyManifests": {
@@ -120,6 +135,12 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
         "WAKE_LOCK"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "newArchEnabled": true,
