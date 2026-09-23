@@ -29,6 +29,7 @@ import { toastBus } from "../../ui/feedback/toastBus";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
 import type { EmergencyStatus } from "../../types/emergency";
+import { handleApiError } from "../../utils/error/handleApiError";
 
 /** Pencil ZVLRX — Home / Dashboard */
 const P = {
@@ -81,9 +82,10 @@ export const UserHomeScreen = ({ navigation }: Props) => {
   const setActiveSession = useEmergencyStore((state) => state.setActiveSession);
   const acquireSosStartLock = useEmergencyStore((state) => state.acquireSosStartLock);
   const releaseSosStartLock = useEmergencyStore((state) => state.releaseSosStartLock);
+  const resetSosCooldown = useEmergencyStore((state) => state.resetSosCooldown);
   const loadOrganizations = Boolean(isBootstrapped && isAuthenticated && userId);
   const {
-    data: memberships = [],
+    data: membershipsData,
     isLoading: orgsLoading,
     isError: orgsError,
     refetch: refetchOrgs,
@@ -92,6 +94,7 @@ export const UserHomeScreen = ({ navigation }: Props) => {
     queryFn: organizationApi.getMyOrganizations,
     enabled: loadOrganizations,
   });
+  const memberships = React.useMemo(() => membershipsData ?? [], [membershipsData]);
   const [buttonState, setButtonState] = React.useState<"idle" | "sending" | "active" | "disabled">(
     activeSession ? "active" : "idle",
   );
@@ -168,17 +171,20 @@ export const UserHomeScreen = ({ navigation }: Props) => {
   /** Пользователь без компании — без предупреждений «нужна точка» и без блока «Моя организация». */
   const isNewUserPersonalHome = !canUseApp && !hasOrganization;
 
-  const onStartSos = async () => {
+  /** true — SOS ушёл. Кнопка по нему решает, какую вибрацию дать. */
+  const onStartSos = async (): Promise<boolean> => {
     if (activeSession) {
+      // Тревога уже идёт — переходим к ней. Это не неудача: вибрация «ошибка»
+      // здесь пугала бы.
       navigation.navigate("UserActiveEmergency", { sessionId: activeSession.id });
-      return;
+      return true;
     }
     if (!canUseApp) {
       toastBus.show({
         message: ru.userHome.toastNeedAccess,
         severity: "warning",
       });
-      return;
+      return false;
     }
     // Atomic guard against duplicate /emergency/start requests from
     // rapid taps, racing presses on different controls, or React state lag.
@@ -187,7 +193,7 @@ export const UserHomeScreen = ({ navigation }: Props) => {
         message: ru.userHome.sosAlreadyInFlight,
         severity: "warning",
       });
-      return;
+      return false;
     }
     setButtonState("sending");
     try {
@@ -202,7 +208,7 @@ export const UserHomeScreen = ({ navigation }: Props) => {
               message: ru.userHome.ownerNoVenueSelected,
               severity: "warning",
             });
-            return;
+            return false;
           }
           startOpts = { venueId: selectedOwnerVenueId };
         } else {
@@ -216,26 +222,35 @@ export const UserHomeScreen = ({ navigation }: Props) => {
       setActiveSession(session);
       toastBus.show({ message: ru.userHome.sosSent, severity: "success" });
       navigation.navigate("UserActiveEmergency");
+      return true;
     } catch (err: unknown) {
       setButtonState("idle");
-      // Backend (REL-2) returns 409 when a concurrent SOS is in flight — show a
-      // clean Russian message instead of the raw server payload.
-      const status =
-        err && typeof err === "object" && "response" in err
-          ? ((err as { response?: { status?: number } }).response?.status ?? 0)
-          : 0;
-      const message =
-        status === 409 ? ru.userHome.sosAlreadyInFlight : ru.userHome.sosFail;
-      toastBus.show({ message, severity: "error" });
+      // Причина важна: «нужна подписка», «нет сети» и «уже отправляется» требуют
+      // разных действий, а раньше всё сводилось к «не удалось».
+      const { status, code, message } = handleApiError(err);
+      const text =
+        status === undefined || (code && ru.errorCodes[code])
+          ? message
+          : status === 409
+            ? // Backend (REL-2) returns 409 when a concurrent SOS is in flight.
+              ru.userHome.sosAlreadyInFlight
+            : ru.userHome.sosFail;
+      toastBus.show({ message: text, severity: "error" });
+      // Сервер ответил отказом — повтор сразу не дубль. Иначе быстрый повтор
+      // упирался в двухсекундную паузу и получал «уже отправляется».
+      resetSosCooldown();
+      return false;
     } finally {
       releaseSosStartLock();
     }
   };
 
+  // Без тревоги плашка писала «Сессия: скрыта» — пустое место, которое ничего не
+  // сообщало. Показываем её, только когда есть что показать.
   const sessionChip =
     activeSession && activeSession.status
       ? `${ru.userHome.sessionPrefix}${STATUS_RU[activeSession.status] ?? activeSession.status}`
-      : ru.userHome.sessionHidden;
+      : null;
 
   return (
     <SafeAreaView
@@ -258,7 +273,10 @@ export const UserHomeScreen = ({ navigation }: Props) => {
             <ActivityIndicator size="large" color="#C4F82A" />
             <Text style={[styles.orgLoadingText, { color: P.muted }]}>{ru.misc.loading}</Text>
           </View>
-        ) : orgsError ? (
+        ) : orgsError && !membershipsData ? (
+          // Карточку ошибки — только когда показать нечего. Раньше неудачное
+          // обновление в плохой сети прятало уже загруженные данные вместе с
+          // кнопкой SOS.
           <Pressable
             onPress={() => void refetchOrgs()}
             style={[styles.orgErrorCard, { borderColor: P.border, backgroundColor: P.card }]}
@@ -507,9 +525,11 @@ export const UserHomeScreen = ({ navigation }: Props) => {
               >
                 <Text style={[styles.metaChipText, { color: P.textBlue }]}>{ru.userHome.history}</Text>
               </Pressable>
-              <View style={[styles.metaChip, { borderColor: P.border, backgroundColor: P.card }]}>
-                <Text style={[styles.metaChipText, { color: P.sessionMuted }]}>{sessionChip}</Text>
-              </View>
+              {sessionChip ? (
+                <View style={[styles.metaChip, { borderColor: P.border, backgroundColor: P.card }]}>
+                  <Text style={[styles.metaChipText, { color: P.sessionMuted }]}>{sessionChip}</Text>
+                </View>
+              ) : null}
             </View>
 
             <Text style={[styles.footerNote, { color: P.caption }]}>{ru.userHome.footerNote}</Text>

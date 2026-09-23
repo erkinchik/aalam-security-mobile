@@ -25,7 +25,10 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
   const setSendingLocation = useEmergencyStore((state) => state.setSendingLocation);
   const markLocationSent = useEmergencyStore((state) => state.markLocationSent);
   const activeSessionId = activeSession?.id;
-  const activeSessionStatus = activeSession?.status;
+  // Именно «открыт ли», а не сам статус: иначе каждый переход NEW → ASSIGNED →
+  // IN_PROGRESS останавливал и заново запускал трекинг, и на заблокированном
+  // экране перезапуск мог не подняться — точки обрывались сразу после принятия.
+  const isSessionOpen = Boolean(activeSession) && activeSession?.status !== "CLOSED";
   const venueLat = activeSession?.venue?.latitude;
   const venueLng = activeSession?.venue?.longitude;
 
@@ -33,7 +36,7 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
   const venueBranchSentForSessionRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!activeSessionId || activeSessionStatus === "CLOSED" || role !== "USER") {
+    if (!activeSessionId || !isSessionOpen || role !== "USER") {
       void locationTrackingService.stop();
       return;
     }
@@ -111,7 +114,7 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
         await emergencyApi.sendLocation(activeSessionId, {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
-          accuracy: pos.coords.accuracy ?? 10,
+          accuracy: Math.max(1, pos.coords.accuracy ?? 10),
         });
         markLocationSent();
       } catch {
@@ -131,6 +134,7 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
       }
       const backgroundStarted = await locationTrackingService.start(intervalMs);
       if (cancelled || backgroundStarted) return;
+      console.warn("sos-location: фоновый трекинг не запустился, шлём из приложения");
 
       void sendOnce();
       foregroundTimer = setInterval(() => void sendOnce(), intervalMs);
@@ -145,7 +149,7 @@ export const useEmergencyLocationSender = (intervalMs = 5000) => {
     };
   }, [
     activeSessionId,
-    activeSessionStatus,
+    isSessionOpen,
     intervalMs,
     markLocationSent,
     role,

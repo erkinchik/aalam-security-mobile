@@ -39,7 +39,9 @@ TaskManager.defineTask<LocationTaskData>(EMERGENCY_LOCATION_TASK, async ({ data,
   const markLocationSent = useEmergencyStore.getState().markLocationSent;
 
   for (const loc of locations) {
-    const accuracy = loc.coords.accuracy ?? 10;
+    // Сервер требует точность > 0; изредка GPS отдаёт 0 — такая точка получала
+    // 400 и терялась.
+    const accuracy = Math.max(1, loc.coords.accuracy ?? 10);
     try {
       await emergencyApi.sendLocation(sessionId, {
         latitude: loc.coords.latitude,
@@ -91,7 +93,10 @@ export const locationTrackingService = {
         },
       });
       return true;
-    } catch {
+    } catch (error) {
+      // Чаще всего нет фонового разрешения. Вызывающий переходит на отправку из
+      // приложения, но причина нужна для разбора — молча её терять нельзя.
+      console.warn("sos-location: startLocationUpdatesAsync failed", error);
       return false;
     }
   },

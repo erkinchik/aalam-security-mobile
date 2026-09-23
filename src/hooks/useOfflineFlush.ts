@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEmergencyStore } from "../stores/emergencyStore";
 import { networkService } from "../services/networkService";
+import { isAxiosError } from "axios";
 import { emergencyApi } from "../api/modules/emergency";
+
+/**
+ * Ответ, после которого точку повторять бессмысленно: сессия закрыта, чужая или
+ * данные неверны. 401 и 429 — временные: токен обновится, лимит отпустит.
+ */
+const isPermanentRejection = (error: unknown) => {
+  if (!isAxiosError(error) || !error.response) return false;
+  const status = error.response.status;
+  return status >= 400 && status < 500 && status !== 401 && status !== 408 && status !== 429;
+};
 
 /** Periodic retry cadence while a backlog exists but sends keep failing. */
 const RETRY_INTERVAL_MS = 20000;
@@ -58,7 +69,14 @@ export const useOfflineFlush = () => {
             accuracy: point.accuracy,
           });
           await useEmergencyStore.getState().dequeueLocations(1);
-        } catch {
+        } catch (error) {
+          // Одна точка закрытой или чужой сессии раньше останавливала очередь
+          // навсегда: повтор каждые 20 с получал тот же отказ. Такие выбрасываем.
+          if (isPermanentRejection(error)) {
+            console.warn("offline-queue: сервер отклонил точку, выбрасываем", point.sessionId, error);
+            await useEmergencyStore.getState().dequeueLocations(1);
+            continue;
+          }
           // Server unreachable — stop. The retry timer or a reconnect event
           // will resume the drain later.
           break;

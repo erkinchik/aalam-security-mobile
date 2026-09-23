@@ -16,6 +16,7 @@ import { useAuthBootstrap } from "./hooks/useAuthBootstrap";
 import { useTokenRefresh } from "./hooks/useTokenRefresh";
 import { useEmergencySocketEvents } from "./hooks/useEmergencySocketEvents";
 import { useEmergencyLocationSender } from "./hooks/useEmergencyLocationSender";
+import { useRestoreActiveEmergency } from "./hooks/useRestoreActiveEmergency";
 import { useHeartbeat } from "./hooks/useHeartbeat";
 import { usePushNotifications } from "./hooks/usePushNotifications";
 import { useOperatorShift } from "./hooks/useOperatorShift";
@@ -44,6 +45,7 @@ const AppInner = () => {
   useAuthBootstrap();
   useTokenRefresh();
   useEmergencySocketEvents();
+  useRestoreActiveEmergency();
   useEmergencyLocationSender(5000);
   useHeartbeat(15000);
   useOperatorShift();

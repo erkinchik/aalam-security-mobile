@@ -12,6 +12,11 @@ const SOS_START_COOLDOWN_MS = 2000;
 
 interface EmergencyState {
   activeSession: EmergencySession | null;
+  /**
+   * Растёт при каждом изменении тревоги. Асинхронная сверка с сервером по нему
+   * понимает, что её ответ устарел: пока шёл запрос, SOS отправили или закрыли.
+   */
+  sessionEpoch: number;
   isSendingLocation: boolean;
   lastLocationSentAt: string | null;
   /** Selected emergency category (for future API support) */
@@ -35,13 +40,21 @@ interface EmergencyState {
    */
   acquireSosStartLock: () => boolean;
   releaseSosStartLock: () => void;
+  /** После отказа сервера: повтор сразу — не дубль, пауза не нужна. */
+  resetSosCooldown: () => void;
   enqueueLocation: (point: PendingLocationPoint) => Promise<void>;
   dequeueLocations: (count: number) => Promise<void>;
   hydrateOfflineQueues: () => Promise<void>;
+  /**
+   * Выход из учётки. Без сброса следующий пользователь на телефоне попадал в
+   * чужую тревогу, а её точки уходили от его имени и получали 403.
+   */
+  reset: () => Promise<void>;
 }
 
 export const useEmergencyStore = create<EmergencyState>((set, get) => ({
   activeSession: null,
+  sessionEpoch: 0,
   isSendingLocation: false,
   lastLocationSentAt: null,
   pendingCategory: null,
@@ -51,8 +64,9 @@ export const useEmergencyStore = create<EmergencyState>((set, get) => ({
   isOfflineQueuesHydrated: false,
   setActiveSession: (activeSession) =>
     set((state) => {
+      const sessionEpoch = state.sessionEpoch + 1;
       if (!activeSession) {
-        return { activeSession: null };
+        return { activeSession: null, sessionEpoch };
       }
       const prev = state.activeSession;
       if (
@@ -67,9 +81,10 @@ export const useEmergencyStore = create<EmergencyState>((set, get) => ({
             venueId: activeSession.venueId ?? prev.venueId,
             emergencyType: activeSession.emergencyType ?? prev.emergencyType,
           },
+          sessionEpoch,
         };
       }
-      return { activeSession };
+      return { activeSession, sessionEpoch };
     }),
   setSendingLocation: (isSendingLocation) => set({ isSendingLocation }),
   markLocationSent: () => set({ lastLocationSentAt: new Date().toISOString() }),
@@ -87,6 +102,7 @@ export const useEmergencyStore = create<EmergencyState>((set, get) => ({
     return true;
   },
   releaseSosStartLock: () => set({ isStartingEmergency: false }),
+  resetSosCooldown: () => set({ lastSosStartAttemptAt: 0 }),
   enqueueLocation: async (point) => {
     const next = [...get().pendingLocationQueue, point];
     // Bound the queue: keep the most recent points (older ones become less useful).
@@ -105,6 +121,19 @@ export const useEmergencyStore = create<EmergencyState>((set, get) => ({
     } else {
       await offlineQueueStorage.setLocationQueue(next);
     }
+  },
+  reset: async () => {
+    set((state) => ({
+      sessionEpoch: state.sessionEpoch + 1,
+      activeSession: null,
+      isSendingLocation: false,
+      lastLocationSentAt: null,
+      pendingCategory: null,
+      isStartingEmergency: false,
+      lastSosStartAttemptAt: 0,
+      pendingLocationQueue: [],
+    }));
+    await offlineQueueStorage.clearLocationQueue();
   },
   hydrateOfflineQueues: async () => {
     if (get().isOfflineQueuesHydrated) return;

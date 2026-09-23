@@ -29,7 +29,8 @@ export type SosButtonState = "idle" | "sending" | "active" | "disabled";
 
 interface Props {
   state: SosButtonState;
-  onTrigger: () => Promise<void> | void;
+  /** Возвращает, ушёл ли SOS; ошибку вызывающий показывает сам. */
+  onTrigger: () => Promise<boolean> | boolean;
   /** Pencil Home / Dashboard: 152px SOS, orange→red gradient, no info block below */
   dashboardStyle?: boolean;
 }
@@ -47,6 +48,11 @@ const DASHBOARD_GLOW = 184;
 const DASHBOARD_GRADIENT: [ColorValue, ColorValue] = ["#FF8852", "#EF4444"];
 /** Dashboard SOS active: brighter amber → deep orange (same line as idle orange→red) */
 const DASHBOARD_ACTIVE_GRADIENT: [ColorValue, ColorValue] = ["#FBBF24", "#EA580C"];
+
+const haptic = (type: Haptics.NotificationFeedbackType) =>
+  Haptics.notificationAsync(type).catch((error: unknown) => {
+    console.warn("sos-button: вибрация недоступна", error);
+  });
 
 export const SosEmergencyButton = ({ state, onTrigger, dashboardStyle }: Props) => {
   const theme = useAppTheme();
@@ -137,15 +143,17 @@ export const SosEmergencyButton = ({ state, onTrigger, dashboardStyle }: Props) 
   const glowSize = dashboardStyle ? DASHBOARD_GLOW : GLOW_SIZE;
   const labelOnGradient = dashboardStyle ? "#FFFFFF" : theme.tokens.colors.onDanger;
 
+  /**
+   * Вибрация — только обратная связь. Раньше она ждалась до отправки, и отказ
+   * Haptics мог не дать SOS уйти; а «успех» вибрировал и при неудаче, потому
+   * что onTrigger ошибок не бросает.
+   */
   const fireTrigger = async () => {
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    try {
-      await onTrigger();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      throw new Error(ru.sos.triggerFail);
-    }
+    void haptic(Haptics.NotificationFeedbackType.Warning);
+    const sent = await onTrigger();
+    void haptic(
+      sent ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error,
+    );
   };
 
   const clearHoldState = React.useCallback(() => {
