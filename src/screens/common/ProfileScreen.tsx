@@ -2,6 +2,8 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../../stores/authStore";
+import { useOperatorStore } from "../../stores/operatorStore";
+import { confirmSignOut } from "../../utils/confirmSignOut";
 import { AppCard } from "../../components/ui/AppCard";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { Avatar } from "../../components/ui/Avatar";
@@ -23,6 +25,9 @@ export const ProfileScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const hasOpenCall = useOperatorStore((state) =>
+    Object.values(state.activeSessionsById).some((session) => session.status !== "CLOSED"),
+  );
   const roleRoot = user?.role ? roleToRootScreen[user.role] : null;
   const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "—";
 
@@ -31,11 +36,17 @@ export const ProfileScreen = () => {
       <View style={styles.content}>
         {/* Avatar header */}
         <View style={styles.avatarSection}>
-          <Avatar name={user?.email} size={80} />
+          <Avatar name={user?.displayName?.trim() || user?.email} size={80} />
           <View style={styles.avatarInfo}>
+            {/* Имя, если задано; раньше профиль показывал только email, хотя имя есть. */}
             <Text style={[styles.emailText, { color: tokens.colors.onSurface }]} numberOfLines={1}>
-              {user?.email ?? "—"}
+              {user?.displayName?.trim() || user?.email || "—"}
             </Text>
+            {user?.displayName?.trim() && user?.email ? (
+              <Text style={[styles.emailSub, { color: tokens.colors.onSurfaceMuted }]} numberOfLines={1}>
+                {user.email}
+              </Text>
+            ) : null}
             <View
               style={[styles.roleBadge, { backgroundColor: tokens.colors.surfaceVariant, borderColor: tokens.colors.border }]}
             >
@@ -107,7 +118,8 @@ export const ProfileScreen = () => {
           <ActionButton
             variant="secondary"
             label={ru.profileCommon.backWorkspace}
-            onPress={() => navigation.navigate(roleRoot)}
+            // pop: вернуться к уже открытому экрану, а не положить второй поверх.
+            onPress={() => navigation.navigate(roleRoot, undefined, { pop: true })}
             accessibilityLabel={ru.profileCommon.backWorkspaceA11y}
           />
         ) : null}
@@ -116,7 +128,12 @@ export const ProfileScreen = () => {
         <ActionButton
           variant="danger"
           label={ru.profileCommon.signOut}
-          onPress={() => void logout()}
+          onPress={() =>
+            confirmSignOut(
+              () => void logout(),
+              hasOpenCall ? ru.profileCommon.signOutBusyOperator : undefined,
+            )
+          }
           accessibilityLabel={ru.profileCommon.signOutA11y}
         />
       </View>
@@ -135,6 +152,7 @@ const styles = StyleSheet.create({
   },
   avatarInfo: { flex: 1, gap: 6 },
   emailText: { fontSize: 16, fontWeight: "700" },
+  emailSub: { fontSize: 13, marginTop: 2 },
   roleBadge: {
     alignSelf: "flex-start",
     borderRadius: 99,

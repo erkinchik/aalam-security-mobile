@@ -2,6 +2,7 @@ import React, { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { ArrowLeft } from "lucide-react-native";
 import { useAppTheme } from "../../theme";
+import { ru } from "../../locale/ru";
 
 interface Props {
   title: string;
@@ -30,7 +31,7 @@ export const AppHeader = ({ title, subtitle, onBack, rightAction, style }: Props
           onPress={onBack}
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={ru.misc.goBack}
           hitSlop={8}
         >
           <ArrowLeft size={22} color={tokens.colors.primary} strokeWidth={2.5} />

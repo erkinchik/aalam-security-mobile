@@ -1,11 +1,15 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { CloudOff } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOfflineFlush } from "../../hooks/useOfflineFlush";
 import { ru } from "../../locale/ru";
 
 export const OfflineBanner = () => {
   const { isOnline, isSyncing, pendingQueueLength } = useOfflineFlush();
+  // Отступ — от реальной безопасной зоны, а не 56 px: на iPhone с Dynamic Island
+  // плашка иначе уходила под остров, на Android без выреза висела слишком низко.
+  const insets = useSafeAreaInsets();
 
   if (isOnline && pendingQueueLength === 0) {
     return null;
@@ -23,7 +27,7 @@ export const OfflineBanner = () => {
         ru.offline.pendingSync.replace("{count}", count);
 
   return (
-    <View pointerEvents="none" style={styles.wrapper}>
+    <View pointerEvents="none" style={[styles.wrapper, { paddingTop: insets.top + 8 }]}>
       <View style={styles.banner}>
         <CloudOff size={16} color="#FDE047" strokeWidth={2} />
         <Text style={styles.text} numberOfLines={2}>
@@ -41,7 +45,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    paddingTop: 56,
     zIndex: 1000,
   },
   banner: {

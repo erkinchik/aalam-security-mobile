@@ -6,13 +6,12 @@ import {
   FlatList,
   ListRenderItem,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { useUserTabBarBottomInset } from "../../navigation/userTabBarLayout";
 import { UserStackParamList, UserTabParamList } from "../../navigation/types";
 import { usePaginatedList } from "../../hooks/usePaginatedList";
@@ -25,6 +24,7 @@ import { useAppTheme } from "../../theme";
 import { spacing } from "../../theme";
 import type { EmergencySession } from "../../types/emergency";
 import { ru } from "../../locale/ru";
+import { formatDateTime } from "../../utils/date";
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<UserTabParamList, "History">,
@@ -40,11 +40,8 @@ const HistoryCard = React.memo(function HistoryCard({
   tokens: ReturnType<typeof useAppTheme>["tokens"];
   onPress: () => void;
 }) {
-  const created = new Date(item.createdAt);
-  const yyyy = created.getFullYear();
-  const mm = String(created.getMonth() + 1).padStart(2, "0");
-  const dd = String(created.getDate()).padStart(2, "0");
-  const dateStr = `${yyyy}-${mm}-${dd}`;
+  // Со временем: два вызова за день иначе не различить.
+  const dateStr = formatDateTime(item.createdAt);
 
   const headline =
     item.resolution?.trim() ||
@@ -60,6 +57,7 @@ const HistoryCard = React.memo(function HistoryCard({
     item.status === "CLOSED" && item.closedAt
       ? (() => {
           const closed = new Date(item.closedAt);
+          const created = new Date(item.createdAt);
           const diffMin = Math.max(1, Math.round((closed.getTime() - created.getTime()) / 60000));
           return `${ru.emergencyHistory.closedIn} ${diffMin}${ru.emergencyHistory.minShort}`;
         })()
@@ -125,7 +123,7 @@ export const UserEmergencyHistoryScreen = ({ navigation }: Props) => {
 
   if (query.isLoading) {
     return (
-      <SafeAreaView style={rootStyle}>
+      <SafeAreaView edges={["top", "left", "right"]} style={rootStyle}>
         <SkeletonList />
       </SafeAreaView>
     );
@@ -133,7 +131,7 @@ export const UserEmergencyHistoryScreen = ({ navigation }: Props) => {
 
   if (query.isError) {
     return (
-      <SafeAreaView style={rootStyle}>
+      <SafeAreaView edges={["top", "left", "right"]} style={rootStyle}>
         <ErrorState
           title={ru.emergencyHistory.loadErrorTitle}
           message={ru.emergencyHistory.loadErrorMsg}
@@ -148,7 +146,7 @@ export const UserEmergencyHistoryScreen = ({ navigation }: Props) => {
 
   if (data.length === 0) {
     return (
-      <SafeAreaView style={rootStyle}>
+      <SafeAreaView edges={["top", "left", "right"]} style={rootStyle}>
         <ScrollView
           contentContainerStyle={styles.emptyScroll}
           refreshControl={refreshControl}
@@ -161,7 +159,7 @@ export const UserEmergencyHistoryScreen = ({ navigation }: Props) => {
   }
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={[styles.pageHeader, { paddingTop: Math.max(spacing.lg, insets.top + 8) }]}>
         <Text style={[styles.pageTitle, { color: tokens.colors.onSurface }]}>{ru.emergencyHistory.pageTitle}</Text>
         <Text style={[styles.pageSubtitle, { color: tokens.colors.onSurfaceMuted }]}>

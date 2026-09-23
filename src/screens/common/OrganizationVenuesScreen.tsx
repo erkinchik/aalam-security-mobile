@@ -2,7 +2,6 @@ import React, { useCallback } from "react";
 import {
   FlatList,
   ListRenderItemInfo,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
@@ -16,6 +15,7 @@ import { EmptyState } from "../../components/state/EmptyState";
 import { SkeletonList } from "../../components/state/SkeletonList";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Props = NativeStackScreenProps<CommonStackParamList, "OrganizationVenues">;
 
@@ -68,7 +68,7 @@ export const OrganizationVenuesScreen = ({ route, navigation }: Props) => {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+      <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
         <View style={styles.content}>
           <SkeletonList count={4} />
         </View>
@@ -77,7 +77,7 @@ export const OrganizationVenuesScreen = ({ route, navigation }: Props) => {
   }
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <View style={styles.content}>
         <View style={styles.header}>
           <Text style={[styles.subtitle, { color: tokens.colors.onSurfaceMuted }]}>{ru.orgVenues.subtitle}</Text>

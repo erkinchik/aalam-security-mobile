@@ -1,14 +1,19 @@
-export const formatDateTime = (value: string | undefined): string => {
-  if (!value) {
-    return "-";
-  }
-
+/**
+ * «22.09.2026, 14:05» — всегда ru-RU и 24 часа. Раньше формат брался из языка
+ * телефона: на английском интерфейсе посреди русского текста шли «Sep 22» и AM/PM.
+ */
+export const formatDateTime = (value: string | null | undefined): string => {
+  if (!value) return "—";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 };
 
 /** Сколько прошло с момента `since`, в формате «4:07» / «1:02:31». */

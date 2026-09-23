@@ -46,7 +46,7 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
         message: ru.auth.resetEmailHint,
         severity: "success",
       });
-      navigation.navigate("Login");
+      navigation.navigate("Login", undefined, { pop: true });
     } catch (error) {
       // Сервер отвечает кодом PASSWORD_RESET_UNAVAILABLE, пока не подключён
       // почтовый провайдер, — показываем его текст, а не общий «сбой».
@@ -65,10 +65,8 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* Заголовок уже в шапке стека («Сброс пароля») — второй, крупный, дублировал его. */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: tokens.colors.onSurface }]}>
-            {ru.auth.recoveryTitle}
-          </Text>
           <Text style={[styles.subtitle, { color: tokens.colors.onSurfaceMuted }]}>
             {ru.auth.recoverySubtitle}
           </Text>
@@ -103,7 +101,7 @@ export const ForgotPasswordScreen = ({ navigation }: Props) => {
         </View>
 
         <Pressable
-          onPress={() => navigation.navigate("Login")}
+          onPress={() => navigation.navigate("Login", undefined, { pop: true })}
           style={styles.backWrap}
           accessibilityRole="link"
         >
@@ -121,17 +119,11 @@ const styles = StyleSheet.create({
   scroll: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 80,
+    paddingTop: 24,
     paddingBottom: 40,
   },
   header: {
     marginBottom: 28,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-    marginBottom: 6,
   },
   subtitle: {
     fontSize: 15,

@@ -2,7 +2,6 @@ import React from "react";
 import {
   ActivityIndicator,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import {
 } from "../../api/modules/subscriptionRequest";
 import { toastBus } from "../../ui/feedback/toastBus";
 import { useAuthStore } from "../../stores/authStore";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Props = NativeStackScreenProps<
   UserStackParamList,
@@ -258,7 +258,7 @@ export const UserSubscriptionRequestScreen = ({ navigation }: Props) => {
   }
 
   return (
-    <SafeAreaView
+    <SafeAreaView edges={["bottom", "left", "right"]}
       style={[styles.root, { backgroundColor: tokens.colors.background }]}
     >
       <ScrollView

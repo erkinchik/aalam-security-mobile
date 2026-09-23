@@ -13,6 +13,7 @@ import { useAppTheme } from "../../theme";
 import { spacing } from "../../theme";
 import { ru } from "../../locale/ru";
 import { SUPPORT_PHONE } from "../../config/contact";
+import { formatDateTime } from "../../utils/date";
 
 type Props = NativeStackScreenProps<UserStackParamList, "UserEmergencyDetails">;
 
@@ -67,16 +68,8 @@ export const UserEmergencyDetailsScreen = ({ route }: Props) => {
     );
   }
 
-  const createdStr = new Date(item.createdAt).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-  const closedStr = item.closedAt
-    ? new Date(item.closedAt).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "—";
+  const createdStr = formatDateTime(item.createdAt);
+  const closedStr = formatDateTime(item.closedAt);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>

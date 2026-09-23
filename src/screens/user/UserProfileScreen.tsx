@@ -2,7 +2,6 @@ import React from "react";
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +14,7 @@ import { useNavigation } from "@react-navigation/native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { CompositeNavigationProp } from "@react-navigation/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserSessionStore } from "../../stores/userSessionStore";
 import { AppCard } from "../../components/ui/AppCard";
@@ -28,6 +27,8 @@ import { spacing } from "../../theme";
 import { ru } from "../../locale/ru";
 import { usersApi } from "../../api/modules/users";
 import { toastBus } from "../../ui/feedback/toastBus";
+import { useEmergencyStore } from "../../stores/emergencyStore";
+import { confirmSignOut } from "../../utils/confirmSignOut";
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<UserTabParamList, "Profile">,
@@ -47,6 +48,9 @@ export const UserProfileScreen = () => {
   const navigation = useNavigation<Nav>();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const hasActiveSos = useEmergencyStore(
+    (state) => Boolean(state.activeSession) && state.activeSession?.status !== "CLOSED",
+  );
   const currentVenueName = useUserSessionStore((s) => s.currentVenueName);
   const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "—";
 
@@ -95,7 +99,7 @@ export const UserProfileScreen = () => {
   };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.colors.background }]}>
+    <SafeAreaView edges={["left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -112,11 +116,17 @@ export const UserProfileScreen = () => {
         <Text style={[styles.pageTitle, { color: tokens.colors.onSurface }]}>{ru.profileUser.pageTitle}</Text>
 
         <AppCard style={styles.avatarSection}>
-          <Avatar name={user?.email} size={80} />
+          <Avatar name={user?.displayName?.trim() || user?.email} size={80} />
           <View style={styles.avatarInfo}>
+            {/* Имя, если задано; раньше профиль показывал только email, хотя имя есть. */}
             <Text style={[styles.emailText, { color: tokens.colors.onSurface }]} numberOfLines={1}>
-              {user?.email ?? "—"}
+              {user?.displayName?.trim() || user?.email || "—"}
             </Text>
+            {user?.displayName?.trim() && user?.email ? (
+              <Text style={[styles.emailSub, { color: tokens.colors.onSurfaceMuted }]} numberOfLines={1}>
+                {user.email}
+              </Text>
+            ) : null}
             <View
               style={[
                 styles.roleBadge,
@@ -177,7 +187,17 @@ export const UserProfileScreen = () => {
           </Pressable>
         </View>
 
-        <Pressable style={[styles.logoutButton, { backgroundColor: "#3F1D1D" }]} onPress={() => void logout()}>
+        <Pressable
+          style={[styles.logoutButton, { backgroundColor: "#3F1D1D" }]}
+          onPress={() =>
+            confirmSignOut(
+              () => void logout(),
+              hasActiveSos ? ru.profileCommon.signOutBusyUser : undefined,
+            )
+          }
+          accessibilityRole="button"
+          accessibilityLabel={ru.profileCommon.signOutA11y}
+        >
           <Text style={[styles.logoutText, { color: "#FCA5A5" }]}>{ru.profileUser.logout}</Text>
         </Pressable>
 
@@ -293,6 +313,7 @@ const styles = StyleSheet.create({
   },
   avatarInfo: { flex: 1, gap: 8 },
   emailText: { fontSize: 15, fontWeight: "700" },
+  emailSub: { fontSize: 13, marginTop: 2 },
   roleBadge: {
     alignSelf: "flex-start",
     borderRadius: 10,

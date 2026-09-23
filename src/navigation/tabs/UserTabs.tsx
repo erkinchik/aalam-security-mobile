@@ -79,7 +79,7 @@ function TabItem({
       }}
       style={[styles.tabCell, animatedStyle]}
       accessibilityRole="tab"
-      accessibilityLabel={`${labels[name]} tab`}
+      accessibilityLabel={labels[name]}
       accessibilityState={{ selected: focused }}
     >
       <Icon size={20} color={color} strokeWidth={2} />

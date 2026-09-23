@@ -51,7 +51,6 @@ const PEN = {
   noteFill: "#111827",
   noteStroke: "#374151",
   noteText: "#93C5FD",
-  flow: "#52525B",
   pillOn: "#22C55E",
   pillOnText: "#052E16",
   pillOffBg: "#27272A",
@@ -355,9 +354,6 @@ export const UserActiveEmergencyScreen = ({ navigation }: Props) => {
           </Text>
         </View>
 
-        <Text style={[styles.flowText, { fontFamily: mono, color: PEN.flow }]}>
-          {ru.userActiveEmergency.statusFlowShort}
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -562,12 +558,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     lineHeight: 17,
-  },
-  flowText: {
-    fontSize: 11,
-    fontWeight: "600",
-    marginTop: 4,
-    textAlign: "center",
   },
   emptyWrap: {
     flex: 1,
