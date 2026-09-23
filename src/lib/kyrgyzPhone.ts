@@ -16,6 +16,12 @@ export function sanitizeKyrgyzPhoneInput(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 0) return "";
 
+  // Пока набирается сам код страны («9», «99», «996»), показываем его как есть.
+  // Раньше код дописывался после первой же цифры: набранный следом вручную код
+  // попадал в номер дважды (+996996…, и такой номер проходил проверку), а
+  // Backspace на «+996» давал «+99699» — поле невозможно было стереть.
+  if ("996".startsWith(digits)) return `+${digits}`;
+
   let national: string;
   if (digits.startsWith("996")) {
     national = digits.slice(3, 12);

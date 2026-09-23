@@ -3,6 +3,8 @@ import { apiClient } from "../client";
 export interface OrganizationApplicationBranch {
   name: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface OrganizationApplicationAttachmentInput {

@@ -82,7 +82,8 @@ export const RequestNewOrganizationScreen = ({ navigation }: Props) => {
   const [contactEmail, setContactEmail] = React.useState("");
   const [contactPhone, setContactPhone] = React.useState("");
   const [description, setDescription] = React.useState("");
-  const [isAuthorized, setIsAuthorized] = React.useState(true);
+  // Согласие ставит сам заявитель — заранее отмеченная галочка согласием не является.
+  const [isAuthorized, setIsAuthorized] = React.useState(false);
   const [attachments, setAttachments] = React.useState<DocumentPicker.DocumentPickerAsset[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -201,9 +202,14 @@ export const RequestNewOrganizationScreen = ({ navigation }: Props) => {
       await organizationApplicationApi.create({
         organizationName: d.organizationName,
         organizationType: d.organizationType,
+        // Координаты обязательны в форме и сервер их принимает, но раньше они
+        // не уходили — при одобрении филиал создавался без точки, и вызов с него
+        // приходил оператору без места на карте.
         branches: d.branches.map((b) => ({
           name: b.name,
           address: b.address,
+          latitude: b.latitude,
+          longitude: b.longitude,
         })),
         contactEmail: d.contactEmail,
         contactPhone: d.contactPhone,

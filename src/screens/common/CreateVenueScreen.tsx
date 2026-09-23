@@ -29,7 +29,8 @@ import { ru } from "../../locale/ru";
 import { ENV } from "../../config/env";
 import { fetchGoogleFormattedAddress } from "../../utils/googleMapsGeocode";
 
-const DEFAULT_REGION = { latitude: 55.751244, longitude: 37.618423, latitudeDelta: 0.012, longitudeDelta: 0.012 };
+// Бишкек: сюда карта открывается, если геолокация недоступна. Раньше — Москва.
+const DEFAULT_REGION = { latitude: 42.8746, longitude: 74.5698, latitudeDelta: 0.012, longitudeDelta: 0.012 };
 const MOVE_ANIM_MS = 380;
 
 function formatGeocodedAddress(a: Location.LocationGeocodedAddress): string {
@@ -164,12 +165,17 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
   const resolveAddressLine = useCallback(
     async (lat: number, lng: number, placeId?: string) => {
       setAddressResolving(true);
+      // Ответ геокодера мог прийти уже после «Отмены» и затереть восстановленный
+      // адрес — пишем, только пока карта открыта.
+      const applyAddress = (value: string) => {
+        if (mapOpenRef.current) setValue("address", value, { shouldValidate: true });
+      };
       try {
         const apiKey = Platform.OS === "ios" ? ENV.mapsApiKeyIos : ENV.mapsApiKeyAndroid;
         if (apiKey) {
           const g = await fetchGoogleFormattedAddress(apiKey, lat, lng, placeId);
           if (g) {
-            setValue("address", g, { shouldValidate: true });
+            applyAddress(g);
             return;
           }
         }
@@ -177,9 +183,9 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
           const places = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
           const first = places[0];
           const formatted = first ? formatGeocodedAddress(first) : "";
-          setValue("address", formatted || `${lat.toFixed(5)}, ${lng.toFixed(5)}`, { shouldValidate: true });
+          applyAddress(formatted || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
         } catch {
-          setValue("address", `${lat.toFixed(5)}, ${lng.toFixed(5)}`, { shouldValidate: true });
+          applyAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
         }
       } finally {
         setAddressResolving(false);
@@ -213,6 +219,9 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
     [resolveAddressLine],
   );
 
+  const addressBeforeMapRef = React.useRef("");
+  const mapOpenRef = React.useRef(false);
+
   const openMapPicker = useCallback(async () => {
     if (Platform.OS === "android" && !hasMapKey) {
       toastBus.show({
@@ -223,6 +232,11 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
     }
 
     setMapLoading(true);
+    // Карта пишет адрес в форму на каждом сдвиге точки. Запоминаем, что было, —
+    // «Отмена» должна вернуть и точку, и адрес, а не оставить новый текст при
+    // старых координатах.
+    addressBeforeMapRef.current = getValues("address") ?? "";
+    mapOpenRef.current = true;
     setMapOpen(true);
     setPoiHint(null);
     clearDraftSyncTimer();
@@ -263,7 +277,9 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
       setValue("latitude", lat, { shouldValidate: true });
       setValue("longitude", lng, { shouldValidate: true });
 
-      let base = getValues("address")?.trim() ?? "";
+      // Адрес для новой точки ещё ищется — в форме пока адрес старой. Берём не
+      // его, а ищем сами: поздний ответ после закрытия карты уже не запишется.
+      let base = addressResolving ? "" : (getValues("address")?.trim() ?? "");
       const looksLikeCoordsOnly = /^\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*$/.test(base);
 
       if (!base || looksLikeCoordsOnly) {
@@ -292,18 +308,22 @@ export const CreateVenueScreen = ({ route, navigation }: Props) => {
       setValue("address", `${draft.lat.toFixed(5)}, ${draft.lng.toFixed(5)}`, { shouldValidate: true });
     } finally {
       setGeocodeBusy(false);
+      mapOpenRef.current = false;
       setMapOpen(false);
       setPoiHint(null);
       clearDraftSyncTimer();
     }
-  }, [draft.lat, draft.lng, poiHint, getValues, setValue]);
+  }, [draft.lat, draft.lng, poiHint, getValues, setValue, addressResolving]);
 
   const closeMapModal = useCallback(() => {
     clearDraftSyncTimer();
     setMarkerAnimating(false);
+    mapOpenRef.current = false;
     setMapOpen(false);
     setPoiHint(null);
-  }, []);
+    // Без проверки: «Отмена» на пустой форме не должна сразу подсвечивать ошибку.
+    setValue("address", addressBeforeMapRef.current);
+  }, [setValue]);
 
   const createMutation = useMutation({
     mutationFn: (payload: FormValues) => {

@@ -20,8 +20,9 @@ import { fetchGoogleFormattedAddress } from "../../utils/googleMapsGeocode";
 import { toastBus } from "../../ui/feedback/toastBus";
 
 export const DEFAULT_MAP_REGION = {
-  latitude: 55.751244,
-  longitude: 37.618423,
+  // Бишкек: сюда карта открывается, если геолокация недоступна. Раньше — Москва.
+  latitude: 42.8746,
+  longitude: 74.5698,
   latitudeDelta: 0.012,
   longitudeDelta: 0.012,
 };
@@ -180,7 +181,16 @@ export function MapAddressPicker({ address, latitude, longitude, onChange, error
       const lat = draft.lat;
       const lng = draft.lng;
 
-      let base = address?.trim() ?? "";
+      // Точку сдвинули — старый текст адреса относится к старому месту. Раньше он
+      // сохранялся вместе с новыми координатами, и адрес расходился с точкой.
+      // Берём адрес, который карта уже показала для новой точки. Точку не
+      // трогали — оставляем адрес как есть: его могли уточнить руками.
+      const moved =
+        latitude == null ||
+        longitude == null ||
+        Math.abs(lat - latitude) > 1e-6 ||
+        Math.abs(lng - longitude) > 1e-6;
+      let base = moved ? (addressResolving ? "" : previewInModal.trim()) : (address?.trim() ?? "");
       const looksLikeCoordsOnly = /^\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*$/.test(base);
 
       if (!base || looksLikeCoordsOnly) {
@@ -214,7 +224,7 @@ export function MapAddressPicker({ address, latitude, longitude, onChange, error
       setPoiHint(null);
       clearDraftSyncTimer();
     }
-  }, [draft.lat, draft.lng, poiHint, address, onChange]);
+  }, [draft.lat, draft.lng, poiHint, address, onChange, latitude, longitude, previewInModal, addressResolving]);
 
   const closeMapModal = useCallback(() => {
     clearDraftSyncTimer();
