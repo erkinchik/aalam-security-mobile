@@ -25,6 +25,10 @@ export const OperatorQueueModalScreen = ({ navigation }: Props) => {
   const poolById = useOperatorStore((state) => state.poolById);
   const skippedUntil = useOperatorStore((state) => state.skippedUntil);
   const { accept, acceptingId } = useAcceptSession();
+  // Сервер держит правило «один вызов за раз»; кнопка не должна обещать иное.
+  const hasOpenCall = useOperatorStore((state) =>
+    Object.values(state.activeSessionsById).some((session) => session.status !== "CLOSED"),
+  );
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
@@ -99,7 +103,7 @@ export const OperatorQueueModalScreen = ({ navigation }: Props) => {
                   size="small"
                   label={acceptingId === item.id ? ru.operatorPool.accepting : ru.operatorPool.accept}
                   loading={acceptingId === item.id}
-                  disabled={acceptingId !== null}
+                  disabled={acceptingId !== null || hasOpenCall}
                   onPress={() => void onAccept(item.id)}
                 />
               </View>

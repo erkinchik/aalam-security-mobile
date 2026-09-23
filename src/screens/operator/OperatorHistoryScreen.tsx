@@ -10,6 +10,8 @@ import { AppCard } from "../../components/ui/AppCard";
 import { StatusChip } from "../../components/ui/StatusChip";
 import { useAppTheme } from "../../theme";
 import { ru } from "../../locale/ru";
+import { sessionCaller } from "../../utils/emergencySession";
+import { formatDateTime } from "../../utils/date";
 
 export const OperatorHistoryScreen = () => {
   const { tokens } = useAppTheme();
@@ -33,7 +35,7 @@ export const OperatorHistoryScreen = () => {
         <ErrorState
           title={ru.operatorScreens.historyErrorTitle}
           message={ru.operatorScreens.historyLoadMsg}
-          retryLabel={ru.operatorScreens.reloadQueue}
+          retryLabel={ru.errors.retry}
           onRetry={() => void query.refetch()}
         />
       </SafeAreaView>
@@ -70,15 +72,11 @@ export const OperatorHistoryScreen = () => {
             <View style={styles.cardRow}>
               <StatusChip status={item.status} />
               <Text style={[styles.dateText, { color: tokens.colors.onSurfaceMuted }]}>
-                {new Date(item.createdAt).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
+                {formatDateTime(item.createdAt)}
               </Text>
             </View>
             <Text style={[styles.userEmail, { color: tokens.colors.onSurface }]} numberOfLines={1}>
-              {item.user?.email ?? "—"}
+              {sessionCaller(item)}
             </Text>
             {item.resolution ? (
               <Text style={[styles.resolution, { color: tokens.colors.onSurfaceMuted }]} numberOfLines={2}>

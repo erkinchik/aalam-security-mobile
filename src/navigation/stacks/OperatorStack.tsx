@@ -8,12 +8,36 @@ import { OperatorQueueModalScreen } from "../../screens/operator/OperatorQueueMo
 import { useOperatorStore } from "../../stores/operatorStore";
 import { appStackScreenOptions } from "../ui/AppStackShell";
 import { ru } from "../../locale/ru";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
+import { dispatchApi } from "../../api/modules/dispatch";
+import { OPERATOR_SHIFT_QUERY_KEY } from "../../hooks/useOperatorShift";
+import { ErrorState } from "../../components/state/ErrorState";
 import { useAppTheme } from "../../theme";
 
+/**
+ * Пока не известно, на смене ли оператор. Раньше это был пустой чёрный экран без
+ * выхода: не ответил сервер (холодный старт без сети) — и приложение так и
+ * висело до следующего возврата из фона. Тот же ключ запроса, что у
+ * useOperatorShift, поэтому повтор отсюда обновляет и стор.
+ */
 const OperatorShiftLoadingScreen = () => {
   const { tokens } = useAppTheme();
-  return <View style={{ flex: 1, backgroundColor: tokens.colors.background }} />;
+  const query = useQuery({ queryKey: OPERATOR_SHIFT_QUERY_KEY, queryFn: dispatchApi.getShift });
+  return (
+    <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: tokens.colors.background }}>
+      {query.isError ? (
+        <ErrorState
+          title={ru.operatorShift.loadFailTitle}
+          message={ru.operatorShift.loadFailMsg}
+          retryLabel={ru.errors.retry}
+          onRetry={() => void query.refetch()}
+        />
+      ) : (
+        <ActivityIndicator color={tokens.colors.primary} />
+      )}
+    </View>
+  );
 };
 
 const Stack = createNativeStackNavigator<OperatorStackParamList>();

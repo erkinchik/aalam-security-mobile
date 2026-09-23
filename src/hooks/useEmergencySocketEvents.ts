@@ -173,8 +173,9 @@ export const useEmergencySocketEvents = () => {
       if (role !== "OPERATOR") return;
       const sessions = payload?.sessions ?? [];
       if (typeof payload?.onShift === "boolean") {
-        const wasOnShift = useOperatorStore.getState().isOnShift;
-        if (payload.onShift !== wasOnShift) {
+        const { isOnShift: wasOnShift, isShiftResolved } = useOperatorStore.getState();
+        // Ещё и когда статус неизвестен: запрос смены мог не дойти, а снимок пришёл.
+        if (payload.onShift !== wasOnShift || !isShiftResolved) {
           setShift({
             onShift: payload.onShift,
             shiftStartedAt: payload.onShift
@@ -183,7 +184,8 @@ export const useEmergencySocketEvents = () => {
           });
           // Время начала смены в снимке нет — пусть подтянет запрос смены.
           void queryClient.invalidateQueries({ queryKey: OPERATOR_SHIFT_QUERY_KEY });
-          if (!payload.onShift) {
+          // Тост — только если смену правда сняли, а не впервые узнали статус.
+          if (!payload.onShift && wasOnShift) {
             toastBus.show({ message: ru.operatorShift.endedWhileOffline, severity: "warning" });
           }
         }

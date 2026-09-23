@@ -27,9 +27,20 @@ const QUICK_REASONS = [
   ru.operatorScreens.reasonHandedOver,
 ];
 
-const schema = z.object({
-  resolution: z.string().min(1, ru.operatorScreens.resolutionRequired),
-});
+/**
+ * Причина и комментарий — отдельные поля. Раньше чип записывал причину прямо в
+ * текст комментария: выбор чипа стирал уже написанное, а стоило дописать слово —
+ * чип гас. Склеиваем при отправке; нужно хотя бы одно из двух.
+ */
+const schema = z
+  .object({
+    reason: z.string(),
+    note: z.string(),
+  })
+  .refine((v) => v.reason.trim() !== "" || v.note.trim() !== "", {
+    message: ru.operatorScreens.resolutionRequired,
+    path: ["note"],
+  });
 
 type FormValues = z.infer<typeof schema>;
 type Props = NativeStackScreenProps<OperatorStackParamList, "OperatorResolveModal">;
@@ -45,10 +56,11 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
     handleSubmit,
     setValue,
     watch,
+    trigger,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { resolution: "" },
+    defaultValues: { reason: "", note: "" },
   });
 
   /**
@@ -65,7 +77,8 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      await dispatchApi.resolve(sessionId, values.resolution);
+      const resolution = [values.reason.trim(), values.note.trim()].filter(Boolean).join(". ");
+      await dispatchApi.resolve(sessionId, resolution);
       dropLocally();
       toastBus.show({ message: ru.operator.resolved, severity: "success" });
       navigation.goBack();
@@ -87,7 +100,7 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
     }
   };
 
-  const resolution = watch("resolution");
+  const reason = watch("reason");
 
   return (
     <SafeAreaView edges={["bottom", "left", "right"]} style={[styles.root, { backgroundColor: tokens.colors.background }]}>
@@ -104,12 +117,18 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
             {ru.operatorScreens.quickReason}
           </Text>
           <View style={styles.chips}>
-            {QUICK_REASONS.map((reason) => {
-              const selected = resolution === reason;
+            {QUICK_REASONS.map((option) => {
+              const selected = reason === option;
               return (
                 <Pressable
-                  key={reason}
-                  onPress={() => setValue("resolution", reason, { shouldValidate: true })}
+                  key={option}
+                  // Повторное касание снимает выбор.
+                  onPress={() => {
+                    setValue("reason", selected ? "" : option);
+                    // Ошибка «нужна причина или комментарий» висит на поле note —
+                    // перепроверяем его, иначе она оставалась после выбора чипа.
+                    void trigger("note");
+                  }}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   style={[
@@ -128,7 +147,7 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
                       { color: selected ? tokens.colors.primary : tokens.colors.onSurface },
                     ]}
                   >
-                    {reason}
+                    {option}
                   </Text>
                 </Pressable>
               );
@@ -137,7 +156,7 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
 
           <Controller
             control={control}
-            name="resolution"
+            name="note"
             render={({ field: { value, onChange } }) => (
               <AppInput
                 label={ru.operatorScreens.resolveNote}
@@ -146,7 +165,7 @@ export const OperatorResolveModalScreen = ({ route, navigation }: Props) => {
                 onChangeText={onChange}
                 multiline
                 numberOfLines={6}
-                error={errors.resolution?.message}
+                error={errors.note?.message}
                 style={styles.textarea}
                 textAlignVertical="top"
               />
@@ -183,7 +202,8 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, lineHeight: 20 },
   label: { fontSize: 13, fontWeight: "700", marginBottom: -8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
+  // 44 pt — минимальная цель касания; раньше чип был ~34 pt.
+  chip: { paddingHorizontal: 14, minHeight: 44, justifyContent: "center", borderRadius: 999, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: "700" },
   textarea: { minHeight: 140 },
   actions: { flexDirection: "row", gap: 12, marginTop: 8 },

@@ -1,13 +1,14 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { KeyRound, MapPin, Navigation, Phone, User } from "lucide-react-native";
-import { EmergencySession } from "../../types/emergency";
+import { EmergencyLocation, EmergencySession } from "../../types/emergency";
 import { ActionButton } from "../ui/ActionButton";
 import { StatusChip } from "../ui/StatusChip";
 import { useAppTheme } from "../../theme";
 import { formatElapsed } from "../../utils/date";
 import { sessionCaller, sessionCoords, venueEntry } from "../../utils/emergencySession";
-import { callPhone, openRoute } from "../../utils/externalApps";
+import { callPhone, openRoute, openRouteToAddress } from "../../utils/externalApps";
+import { distanceMeters, formatAgo, formatDistance } from "../../utils/geo";
 import { ru } from "../../locale/ru";
 
 interface Props {
@@ -15,6 +16,10 @@ interface Props {
   isStarting: boolean;
   onStartProgress: () => void;
   onResolve: () => void;
+  /** Последняя живая точка из сокета — свежее той, что пришла в самом вызове. */
+  livePoint?: EmergencyLocation;
+  /** Где сейчас оператор — для расстояния. */
+  operatorLocation?: { latitude: number; longitude: number } | null;
 }
 
 /**
@@ -27,6 +32,8 @@ export const ActiveCallCard = ({
   isStarting,
   onStartProgress,
   onResolve,
+  livePoint,
+  operatorLocation,
 }: Props) => {
   const { tokens } = useAppTheme();
   const [elapsed, setElapsed] = React.useState(() => formatElapsed(session.createdAt));
@@ -37,7 +44,14 @@ export const ActiveCallCard = ({
   }, [session.createdAt]);
 
   const entry = venueEntry(session);
-  const coords = sessionCoords(session);
+  // Та же точка, что на маркере карты: раньше маршрут строился по координатам из
+  // вызова, а маркер — по живым, и они могли разойтись.
+  const coords = livePoint ?? sessionCoords(session);
+  const lastPointAt =
+    livePoint?.createdAt ?? session.locations?.[session.locations.length - 1]?.createdAt ?? null;
+  const distance =
+    coords && operatorLocation ? formatDistance(distanceMeters(operatorLocation, coords)) : null;
+  const ago = lastPointAt ? formatAgo(lastPointAt) : null;
   const phone = session.user?.phone ?? null;
   const address = entry?.address ?? entry?.title ?? null;
 
@@ -92,6 +106,20 @@ export const ActiveCallCard = ({
         </View>
       ) : null}
 
+      {distance || ago ? (
+        <View style={styles.row}>
+          <Navigation size={16} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
+          <Text style={[styles.secondary, styles.flexText, { color: tokens.colors.onSurface }]}>
+            {[
+              distance,
+              ago ? ru.operatorScreens.pointUpdated.replace("{ago}", ago) : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.row}>
         <User size={16} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
         <Text
@@ -118,8 +146,11 @@ export const ActiveCallCard = ({
           size="small"
           label={ru.operatorScreens.route}
           leftIcon={<Navigation size={16} color={tokens.colors.onSurface} strokeWidth={2} />}
-          disabled={!coords}
-          onPress={() => coords && leaveTo(() => openRoute(coords, entry?.title))}
+          disabled={!coords && !address}
+          onPress={() => {
+            if (coords) leaveTo(() => openRoute(coords, entry?.title));
+            else if (address) leaveTo(() => openRouteToAddress(address));
+          }}
           accessibilityLabel={ru.operatorScreens.routeA11y}
           style={styles.quickBtn}
         />

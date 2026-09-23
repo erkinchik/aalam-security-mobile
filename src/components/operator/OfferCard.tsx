@@ -18,6 +18,13 @@ import { callPhone } from "../../utils/externalApps";
 import { ru } from "../../locale/ru";
 
 /**
+ * Сколько «Принять» не срабатывает после появления новой карточки. Следующий
+ * вызов встаёт на место смахнутого прямо под палец, и касание, начатое на
+ * старой карточке, иначе принимало вызов, которого оператор даже не видел.
+ */
+const ACCEPT_GUARD_MS = 600;
+
+/**
  * Смещение вниз, после которого карточка считается смахнутой. 90 px смахивали
  * вызов случайно — при попытке нажать «Принять» или просто взять телефон.
  */
@@ -39,8 +46,10 @@ export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) 
   const { tokens } = useAppTheme();
   const translateY = useSharedValue(0);
   const [elapsed, setElapsed] = React.useState(() => formatElapsed(session.createdAt));
+  const shownAtRef = React.useRef(Date.now());
 
   React.useEffect(() => {
+    shownAtRef.current = Date.now();
     translateY.value = 0;
     setElapsed(formatElapsed(session.createdAt));
     const id = setInterval(() => setElapsed(formatElapsed(session.createdAt)), 1000);
@@ -139,7 +148,10 @@ export const OfferCard = ({ session, isAccepting, onAccept, onDismiss }: Props) 
           label={isAccepting ? ru.operatorPool.accepting : ru.operatorPool.accept}
           size="large"
           loading={isAccepting}
-          onPress={onAccept}
+          onPress={() => {
+            if (Date.now() - shownAtRef.current < ACCEPT_GUARD_MS) return;
+            onAccept();
+          }}
         />
         <Text style={[styles.hint, { color: tokens.colors.onSurfaceMuted }]}>
           {ru.operatorPool.swipeToSkip}

@@ -13,9 +13,14 @@ export function navigateToOperatorHome() {
   if (!navigationRef.isReady()) return false;
   // Вне смены карты нет — в стеке зарегистрирован только экран начала смены.
   if (!useOperatorStore.getState().isOnShift) return false;
-  navigationRef.navigate("Operator", {
-    screen: "OperatorTabs",
-    params: { screen: "Dashboard" },
-  });
+  // pop: вернуться к уже открытой карте, а не положить вторую поверх профиля
+  // или модалки очереди.
+  // pop на обоих уровнях: внешний — для корневого стека, вложенный — для стека
+  // оператора (иначе поверх открытой модалки очереди ложилась вторая карта).
+  navigationRef.navigate(
+    "Operator",
+    { screen: "OperatorTabs", params: { screen: "Dashboard" }, pop: true },
+    { pop: true },
+  );
   return true;
 }

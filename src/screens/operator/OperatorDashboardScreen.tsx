@@ -23,6 +23,7 @@ import { ErrorState } from "../../components/state/ErrorState";
 import { useAppTheme } from "../../theme";
 import { EmergencySession } from "../../types/emergency";
 import { sessionCoords } from "../../utils/emergencySession";
+import { distanceMeters } from "../../utils/geo";
 import { toastBus } from "../../ui/feedback/toastBus";
 import { handleApiError } from "../../utils/error/handleApiError";
 import { ru } from "../../locale/ru";
@@ -71,6 +72,11 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
     longitude: number;
   } | null>(null);
   const [isStarting, setIsStarting] = React.useState(false);
+  // Синяя точка включается по разрешению, а не по первой позиции: если первая
+  // попытка не удалась, onUserLocationChange иначе не срабатывал никогда.
+  const [locationGranted, setLocationGranted] = React.useState(false);
+  // До onMapReady animateToRegion может потеряться — центрирование ждёт карту.
+  const [mapReady, setMapReady] = React.useState(false);
 
   // Пул и свои вызовы подтягиваются при открытии и возврате в приложение;
   // между этим их ведёт сокет. Лимит как у снимка сокета.
@@ -108,16 +114,23 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (cancelled || status !== "granted") return;
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      if (!cancelled) {
-        setOperatorLocation({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== "granted") return;
+        setLocationGranted(true);
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
         });
+        if (!cancelled) {
+          setOperatorLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        }
+      } catch (error) {
+        // GPS выключен или не отвечает. Карта работает и без этого — нет только
+        // «Я» и расстояния; синяя точка подхватит позицию, когда она появится.
+        console.warn("operator-map: не удалось получить позицию", error);
       }
     })();
     return () => {
@@ -159,8 +172,17 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   }, [activeCall, offer, liveLocationsBySessionId]);
 
   const focusTarget = markers[0];
+  // Центрируем один раз на вызов: когда он появился или у него впервые появилась
+  // точка. Раньше карта прыгала к заявителю на каждой точке (раз в ~5 с) и
+  // сбрасывала масштаб, который оператор выставил, разглядывая здание.
+  const focusedSessionIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!focusTarget) return;
+    if (!focusTarget) {
+      focusedSessionIdRef.current = null;
+      return;
+    }
+    if (!mapReady || focusedSessionIdRef.current === focusTarget.session.id) return;
+    focusedSessionIdRef.current = focusTarget.session.id;
     mapRef.current?.animateToRegion(
       {
         latitude: focusTarget.latitude,
@@ -170,7 +192,7 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
       },
       400,
     );
-  }, [focusTarget?.latitude, focusTarget?.longitude]);
+  }, [focusTarget, mapReady]);
 
   const centerOnMe = React.useCallback(() => {
     if (!operatorLocation) return;
@@ -217,6 +239,8 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
         severity: "info",
         actionLabel: ru.operatorPool.undoSkip,
         onAction: () => unskipOffer(sessionId),
+        // Трёх секунд по умолчанию не хватает, чтобы под стрессом заметить и нажать.
+        duration: 6000,
       });
     },
     [skipOffer, unskipOffer],
@@ -247,9 +271,10 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
   }, [openCalls, toggleShift]);
 
   const shiftSince = shiftStartedAt
-    ? new Date(shiftStartedAt).toLocaleTimeString(undefined, {
+    ? new Date(shiftStartedAt).toLocaleTimeString("ru-RU", {
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
       })
     : null;
 
@@ -260,7 +285,21 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
           ref={mapRef}
           provider={MAP_PROVIDER}
           style={StyleSheet.absoluteFill}
-          showsUserLocation={Boolean(operatorLocation)}
+          showsUserLocation={locationGranted}
+          onMapReady={() => setMapReady(true)}
+          // Кнопка «Я» вела к точке, снятой один раз при открытии экрана, — после
+          // поездки она указывала на старое место. Синяя точка карты живая, берём её.
+          onUserLocationChange={(e) => {
+            const c = e.nativeEvent.coordinate;
+            if (!c) return;
+            // Событие приходит часто; меньше 20 м для «Я» и расстояния неважны,
+            // а каждый setState перерисовывал весь экран.
+            setOperatorLocation((prev) =>
+              prev && distanceMeters(prev, c) < 20
+                ? prev
+                : { latitude: c.latitude, longitude: c.longitude },
+            );
+          }}
           initialRegion={
             operatorLocation
               ? { ...operatorLocation, latitudeDelta: 0.05, longitudeDelta: 0.05 }
@@ -304,7 +343,8 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
               ? `${ru.operatorShift.onShift} · ${shiftSince}`
               : ru.operatorShift.onShift}
           </Text>
-          {queued > 0 ? (
+          {/* Занятому очередь не нужна: второй вызов сервер всё равно не даст. */}
+          {queued > 0 && !activeCall ? (
             <Pressable
               onPress={openQueue}
               hitSlop={8}
@@ -374,6 +414,8 @@ export const OperatorDashboardScreen = ({ navigation }: Props) => {
             onResolve={() =>
               navigation.navigate("OperatorResolveModal", { sessionId: activeCall.id })
             }
+            livePoint={liveLocationsBySessionId[activeCall.id]}
+            operatorLocation={operatorLocation}
           />
         ) : null}
 
