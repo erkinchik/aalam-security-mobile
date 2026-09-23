@@ -18,8 +18,15 @@ export const authApi = {
     const { data } = await publicClient.post<AuthTokens>("/auth/refresh", payload);
     return data;
   },
-  async logout(payload: RefreshPayload) {
-    const { data } = await apiClient.post<{ status: string }>("/auth/logout", payload);
+  /**
+   * Токен доступа передаём явно, а не через apiClient: его интерцептор на 401
+   * сам вызывает выход, и у удалённой учётки (401 на всё) выход вызывал бы
+   * сам себя.
+   */
+  async logout(payload: RefreshPayload, accessToken: string) {
+    const { data } = await publicClient.post<{ status: string }>("/auth/logout", payload, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     return data;
   },
   async forgotPassword(email: string) {

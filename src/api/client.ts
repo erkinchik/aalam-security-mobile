@@ -131,6 +131,13 @@ apiClient.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`;
         return apiClient(originalRequest);
       } catch (refreshError) {
+        // Очередь отклоняем ДО выхода. Раньше logout() шёл через apiClient: его
+        // собственный 401 вставал в эту очередь, которую разбирали только после
+        // logout(), — они ждали друг друга вечно, и приложение зависало
+        // (например, сразу после удаления аккаунта). Теперь выход идёт мимо
+        // интерцептора, а флаг держим до конца выхода, чтобы параллельное
+        // обновление не вписало токены обратно.
+        resolveQueue(null);
         if (shouldLogoutOnRefreshFailure(refreshError)) {
           await authStore().getState().logout();
         }

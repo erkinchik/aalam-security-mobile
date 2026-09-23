@@ -7,6 +7,7 @@ import { usersApi } from "../api/modules/users";
 import { secureStorage } from "./secureStorage";
 import { useUserSessionStore } from "./userSessionStore";
 import { useOperatorStore } from "./operatorStore";
+import { useEmergencyStore } from "./emergencyStore";
 import { queryClient } from "../queryClient";
 
 interface AuthState {
@@ -139,7 +140,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error) {
       if (isInvalidRefreshError(error)) {
         // The session is genuinely invalid (refresh rejected) — sign out.
-        await Promise.all([secureStorage.clearTokens(), secureStorage.clearUser()]);
+        // Всё, что чистит обычный выход: иначе следующий пользователь на телефоне
+        // наследовал чужую тревогу, вызовы, точку и флаг подписки.
+        await Promise.allSettled([
+          secureStorage.clearTokens(),
+          secureStorage.clearUser(),
+          useUserSessionStore.getState().reset(),
+          useEmergencyStore.getState().reset(),
+        ]);
+        queryClient.clear();
+        useOperatorStore.getState().reset();
         set({
           accessToken: null,
           refreshToken: null,
@@ -199,21 +209,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   logout: async () => {
-    const refreshToken = get().refreshToken;
-    if (refreshToken) {
+    const { refreshToken, accessToken } = get();
+    if (refreshToken && accessToken) {
       try {
-        await authApi.logout({ refreshToken });
+        try {
+          await authApi.logout({ refreshToken }, accessToken);
+        } catch (error) {
+          // Токен доступа мог истечь. Без повтора сервер не отзовёт сессию и не
+          // сотрёт push-токен — вышедшему оператору продолжали бы приходить SOS.
+          if (!isAxiosError(error) || error.response?.status !== 401) throw error;
+          const fresh = await authApi.refresh({ refreshToken });
+          await authApi.logout({ refreshToken: fresh.refreshToken }, fresh.accessToken);
+        }
       } catch (error) {
         // Локальный выход всё равно доводим до конца, но молчать нельзя: именно
         // этот запрос отзывает refresh-токен и гасит push-токен на сервере.
         console.warn("logout: сервер не подтвердил выход", error);
       }
     }
-    await Promise.all([
+    // Тревога тоже сбрасывается: если это был принудительный выход посреди SOS,
+    // после входа она восстановится с сервера (useRestoreActiveEmergency).
+    // allSettled: сбой одного хранилища не должен оставить пользователя «вошедшим».
+    const cleanup = await Promise.allSettled([
       secureStorage.clearTokens(),
       secureStorage.clearUser(),
       useUserSessionStore.getState().reset(),
+      useEmergencyStore.getState().reset(),
     ]);
+    cleanup.forEach((result) => {
+      if (result.status === "rejected") {
+        console.warn("logout: не удалось очистить локальные данные", result.reason);
+      }
+    });
 
     queryClient.clear();
     useOperatorStore.getState().reset();
