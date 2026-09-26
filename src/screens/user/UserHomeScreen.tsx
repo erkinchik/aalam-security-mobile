@@ -154,13 +154,24 @@ export const UserHomeScreen = ({ navigation }: Props) => {
   const assignedVenue = memberships
     .flatMap((member) => member.organization.venues ?? [])
     .find((venue) => venue.id === currentVenueId);
-  const selectedBranchVenue =
-    isOrgWideEmployee && selectedOwnerVenueId
+  // Статус повторяет то, куда уйдёт SOS: раньше в режиме GPS он показывал адрес
+  // первого филиала, а при личной подписке — «Личный тариф» вместо организации.
+  const effectiveSosMode = showBranchPicker ? (showGpsModeToggle ? sosMode : "venue") : null;
+  const pickedBranchVenue =
+    effectiveSosMode === "venue" && selectedOwnerVenueId
       ? branchVenues.find((v) => v.id === selectedOwnerVenueId)
       : undefined;
-  const venueForAddressLine = assignedVenue ?? selectedBranchVenue;
+  const venueForAddressLine = showBranchPicker ? pickedBranchVenue : assignedVenue;
   const venueAddressLine = venueForAddressLine ? formatVenueAddress(venueForAddressLine) : "";
   const hasAssignedVenue = Boolean(currentVenueId);
+  const venueStatusText =
+    effectiveSosMode === "gps"
+      ? ru.userHome.gpsVenueLine
+      : effectiveSosMode === "venue"
+        ? pickedBranchVenue?.name ?? ru.userHome.notAssigned
+        : hasAssignedVenue
+          ? currentVenueName ?? ru.userHome.notAssigned
+          : ru.userHome.personalMode;
   const canUseApp =
     serverIndividual ||
     hasIndividualSubscription ||
@@ -353,20 +364,12 @@ export const UserHomeScreen = ({ navigation }: Props) => {
                 </View>
               </View>
               <Text style={styles.orgLine}>
-                {!hasOrganization || (hasIndividualSubscription && !hasAssignedVenue)
-                  ? `${ru.userHome.orgPrefix} ${ru.userHome.individualPlan}`
-                  : `${ru.userHome.orgPrefix} ${memberships[0]?.organization.name}`}
+                {`${ru.userHome.orgPrefix} ${
+                  memberships[0]?.organization.name ?? ru.userHome.individualPlan
+                }`}
               </Text>
               <Text style={[styles.assignedLine, { color: P.muted }]}>
-                {(!hasOrganization || hasIndividualSubscription) &&
-                !hasAssignedVenue &&
-                !isOrgWideEmployee
-                  ? `${ru.userHome.venuePrefix} ${ru.userHome.personalMode}`
-                  : `${ru.userHome.venuePrefix} ${
-                      isOrgWideEmployee && !currentVenueName
-                        ? ru.userHome.orgWideVenueLine
-                        : currentVenueName ?? ru.userHome.notAssigned
-                    }`}
+                {`${ru.userHome.venuePrefix} ${venueStatusText}`}
               </Text>
               {venueAddressLine ? (
                 <Text style={[styles.locationLine, { color: P.sessionMuted }]}>
@@ -503,7 +506,9 @@ export const UserHomeScreen = ({ navigation }: Props) => {
               <Text style={[styles.hint, { color: P.muted }]}>{ru.userHome.sosHint}</Text>
             </View>
 
-            {!isBusinessOwner ? (
+            {/* Уже в организации — сменить её можно только из «Моей организации»:
+                новый код молча заменяет членство. */}
+            {!hasOrganization ? (
               <Pressable
                 onPress={() => navigation.navigate("UserBindVenue")}
                 style={[styles.venueDetailsRow, { borderColor: P.border, backgroundColor: P.card }]}

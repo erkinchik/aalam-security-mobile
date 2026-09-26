@@ -1,6 +1,9 @@
 import React from "react";
 import {
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +13,7 @@ import {
 } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 import axios from "axios";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -26,6 +30,7 @@ import { useAppTheme } from "../../theme";
 import { spacing } from "../../theme";
 import { ru } from "../../locale/ru";
 import { usersApi } from "../../api/modules/users";
+import { organizationApi } from "../../api/modules/organization";
 import { toastBus } from "../../ui/feedback/toastBus";
 import { useEmergencyStore } from "../../stores/emergencyStore";
 import { confirmSignOut } from "../../utils/confirmSignOut";
@@ -52,6 +57,14 @@ export const UserProfileScreen = () => {
     (state) => Boolean(state.activeSession) && state.activeSession?.status !== "CLOSED",
   );
   const currentVenueName = useUserSessionStore((s) => s.currentVenueName);
+  const { data: memberships } = useQuery({
+    queryKey: ["organizations", user?.id],
+    queryFn: organizationApi.getMyOrganizations,
+    enabled: Boolean(user?.id),
+  });
+  // Сменить организацию можно только из «Моей организации»: новый код молча
+  // заменяет членство, поэтому здесь ввод кода — лишь для тех, кто ни в одной.
+  const hasOrganization = (memberships?.length ?? 0) > 0;
   const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "—";
 
   const stackNav = navigation.getParent<NativeStackNavigationProp<UserStackParamList>>();
@@ -152,15 +165,19 @@ export const UserProfileScreen = () => {
           {ru.profileUser.securitySettings}
         </Text>
         <AppCard style={styles.settingGroup}>
-          <Pressable style={styles.settingRow} onPress={() => stackNav?.navigate("UserBindVenue")}>
-            <Text style={[styles.settingLabel, { color: tokens.colors.onSurface }]}>
-              {currentVenueName
-                ? `${ru.profileUser.venuePrefix}${currentVenueName}`
-                : ru.profileUser.joinVenue}
-            </Text>
-            <ChevronRight size={18} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
-          </Pressable>
-          <View style={[styles.rowDivider, { backgroundColor: tokens.colors.border }]} />
+          {!hasOrganization ? (
+            <>
+              <Pressable style={styles.settingRow} onPress={() => stackNav?.navigate("UserBindVenue")}>
+                <Text style={[styles.settingLabel, { color: tokens.colors.onSurface }]}>
+                  {currentVenueName
+                    ? `${ru.profileUser.venuePrefix}${currentVenueName}`
+                    : ru.profileUser.joinVenue}
+                </Text>
+                <ChevronRight size={18} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
+              </Pressable>
+              <View style={[styles.rowDivider, { backgroundColor: tokens.colors.border }]} />
+            </>
+          ) : null}
           <Pressable style={styles.settingRow} onPress={() => stackNav?.navigate("UserSubscriptionRequest")}>
             <Text style={[styles.settingLabel, { color: tokens.colors.onSurface }]}>{ru.profileUser.subscriptionRequest}</Text>
             <ChevronRight size={18} color={tokens.colors.onSurfaceMuted} strokeWidth={2} />
@@ -219,82 +236,91 @@ export const UserProfileScreen = () => {
         animationType="fade"
         onRequestClose={onCloseDelete}
       >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: tokens.colors.surface, borderColor: tokens.colors.border },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: tokens.colors.onSurface }]}>
-              {ru.deleteAccount.title}
-            </Text>
-            <Text style={[styles.modalBody, { color: tokens.colors.onSurfaceMuted }]}>
-              {ru.deleteAccount.warning}
-            </Text>
-
-            <Text style={[styles.consequencesTitle, { color: tokens.colors.onSurface }]}>
-              {ru.deleteAccount.consequencesTitle}
-            </Text>
-            <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
-              • {ru.deleteAccount.consequence1}
-            </Text>
-            <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
-              • {ru.deleteAccount.consequence2}
-            </Text>
-            <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
-              • {ru.deleteAccount.consequence3}
-            </Text>
-
-            <Text style={[styles.confirmHint, { color: tokens.colors.onSurfaceMuted }]}>
-              {ru.deleteAccount.confirmHint}
-            </Text>
-            <TextInput
-              value={deleteInput}
-              onChangeText={setDeleteInput}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!deleting}
+        {/* Без этого клавиатуру поля «УДАЛИТЬ» закрывал только Enter, а на
+            маленьких экранах она перекрывала кнопки. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalKeyboard}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={Keyboard.dismiss} accessible={false}>
+            <View
               style={[
-                styles.confirmInput,
-                {
-                  color: tokens.colors.onSurface,
-                  borderColor: tokens.colors.border,
-                  backgroundColor: tokens.colors.background,
-                },
+                styles.modalCard,
+                { backgroundColor: tokens.colors.surface, borderColor: tokens.colors.border },
               ]}
-              placeholder={ru.deleteAccount.confirmKeyword}
-              placeholderTextColor={tokens.colors.onSurfaceMuted}
-            />
+            >
+              <Text style={[styles.modalTitle, { color: tokens.colors.onSurface }]}>
+                {ru.deleteAccount.title}
+              </Text>
+              <Text style={[styles.modalBody, { color: tokens.colors.onSurfaceMuted }]}>
+                {ru.deleteAccount.warning}
+              </Text>
 
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalBtn, styles.modalCancel, { borderColor: tokens.colors.border }]}
-                onPress={onCloseDelete}
-                disabled={deleting}
-              >
-                <Text style={[styles.modalCancelText, { color: tokens.colors.onSurface }]}>
-                  {ru.deleteAccount.cancelButton}
-                </Text>
-              </Pressable>
-              <Pressable
+              <Text style={[styles.consequencesTitle, { color: tokens.colors.onSurface }]}>
+                {ru.deleteAccount.consequencesTitle}
+              </Text>
+              <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
+                • {ru.deleteAccount.consequence1}
+              </Text>
+              <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
+                • {ru.deleteAccount.consequence2}
+              </Text>
+              <Text style={[styles.consequenceItem, { color: tokens.colors.onSurfaceMuted }]}>
+                • {ru.deleteAccount.consequence3}
+              </Text>
+
+              <Text style={[styles.confirmHint, { color: tokens.colors.onSurfaceMuted }]}>
+                {ru.deleteAccount.confirmHint}
+              </Text>
+              <TextInput
+                value={deleteInput}
+                onChangeText={setDeleteInput}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!deleting}
                 style={[
-                  styles.modalBtn,
-                  styles.modalConfirm,
-                  (!canConfirmDelete || deleting) && styles.modalConfirmDisabled,
+                  styles.confirmInput,
+                  {
+                    color: tokens.colors.onSurface,
+                    borderColor: tokens.colors.border,
+                    backgroundColor: tokens.colors.background,
+                  },
                 ]}
-                onPress={() => void onConfirmDelete()}
-                disabled={!canConfirmDelete || deleting}
-              >
-                <Text style={styles.modalConfirmText}>
-                  {deleting
-                    ? ru.deleteAccount.deletingButton
-                    : ru.deleteAccount.confirmButton}
-                </Text>
-              </Pressable>
+                placeholder={ru.deleteAccount.confirmKeyword}
+                placeholderTextColor={tokens.colors.onSurfaceMuted}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
+              />
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={[styles.modalBtn, styles.modalCancel, { borderColor: tokens.colors.border }]}
+                  onPress={onCloseDelete}
+                  disabled={deleting}
+                >
+                  <Text style={[styles.modalCancelText, { color: tokens.colors.onSurface }]}>
+                    {ru.deleteAccount.cancelButton}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.modalBtn,
+                    styles.modalConfirm,
+                    (!canConfirmDelete || deleting) && styles.modalConfirmDisabled,
+                  ]}
+                  onPress={() => void onConfirmDelete()}
+                  disabled={!canConfirmDelete || deleting}
+                >
+                  <Text style={styles.modalConfirmText}>
+                    {deleting
+                      ? ru.deleteAccount.deletingButton
+                      : ru.deleteAccount.confirmButton}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -389,6 +415,9 @@ const styles = StyleSheet.create({
     color: "#FCA5A5",
     fontSize: 14,
     fontWeight: "600",
+  },
+  modalKeyboard: {
+    flex: 1,
   },
   modalBackdrop: {
     flex: 1,

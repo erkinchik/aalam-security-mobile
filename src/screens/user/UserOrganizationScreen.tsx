@@ -2,6 +2,7 @@ import React, { useCallback } from "react";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -135,6 +136,30 @@ export const UserOrganizationScreen = ({ navigation }: Props) => {
   const typeLabel = ru.userOrg.business;
   const roleLabel = ROLE_LABELS[m.role] ?? m.role;
   const isMemberParticipant = (m.role ?? "").toUpperCase() === "MEMBER";
+  // Владелец по чужому коду уйти не может — сервер откажет, ссылку не показываем.
+  const canSwitchOrg = (m.role ?? "").toUpperCase() !== "OWNER";
+
+  const confirmSwitchOrg = () => {
+    Alert.alert(
+      ru.userOrg.switchOrgConfirmTitle,
+      ru.userOrg.switchOrgConfirmMsg.replace("{name}", org.name),
+      [
+        { text: ru.userOrg.switchOrgConfirmCancel, style: "cancel" },
+        { text: ru.userOrg.switchOrgConfirmOk, onPress: () => navigation.navigate("UserBindVenue") },
+      ],
+    );
+  };
+
+  const switchOrgLink = canSwitchOrg ? (
+    <Pressable
+      onPress={confirmSwitchOrg}
+      style={styles.switchOrgLink}
+      accessibilityRole="button"
+      hitSlop={8}
+    >
+      <Text style={[styles.switchOrgText, { color: P.sessionMuted }]}>{ru.userOrg.switchOrg}</Text>
+    </Pressable>
+  ) : null;
 
   const orgCard = (
     <View style={[styles.card, { borderColor: P.border, backgroundColor: P.card }]}>
@@ -174,6 +199,7 @@ export const UserOrganizationScreen = ({ navigation }: Props) => {
           showsVerticalScrollIndicator={false}
         >
           {orgCard}
+          {switchOrgLink}
         </ScrollView>
       </SafeAreaView>
     );
@@ -226,15 +252,6 @@ export const UserOrganizationScreen = ({ navigation }: Props) => {
         </Pressable>
 
         <Pressable
-          onPress={() => navigation.navigate("UserBindVenue")}
-          style={[styles.secondaryCta, { borderColor: P.border }]}
-          accessibilityRole="button"
-        >
-          <Text style={styles.secondaryCtaText}>{ru.userOrg.assignVenue}</Text>
-          <Text style={styles.secondaryCtaArrow}>→</Text>
-        </Pressable>
-
-        <Pressable
           onPress={openMyOrganizationsCommon}
           style={[styles.tertiaryRow, { borderColor: P.border }]}
           accessibilityRole="button"
@@ -242,6 +259,8 @@ export const UserOrganizationScreen = ({ navigation }: Props) => {
           <Text style={[styles.tertiaryText, { color: P.textBlue }]}>{ru.userOrg.openFullList}</Text>
           <Text style={[styles.tertiaryArrow, { color: P.textBlue }]}>→</Text>
         </Pressable>
+
+        {switchOrgLink}
 
         <Text style={[styles.footerNote, { color: P.caption, fontFamily: monoFont }]}>
           {ru.userOrg.orgId}
@@ -413,6 +432,15 @@ const styles = StyleSheet.create({
   tertiaryArrow: {
     fontSize: 14,
     fontWeight: "700",
+  },
+  switchOrgLink: {
+    alignSelf: "center",
+    paddingVertical: 8,
+  },
+  switchOrgText: {
+    fontSize: 13,
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   footerNote: {
     fontSize: 11,
