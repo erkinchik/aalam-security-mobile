@@ -35,7 +35,7 @@
         "appleTeamId": "R87UR3QYRM"
       },
       "android": {
-        "track": "internal",
+        "track": "closed-alpha",
         "releaseStatus": "completed"
       }
     }
