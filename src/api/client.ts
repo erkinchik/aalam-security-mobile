@@ -87,17 +87,18 @@ const requestTokens = async (): Promise<AuthTokens | null> => {
     refreshToken,
   });
   const tokens = response.data;
-  if (authStore().getState().refreshToken !== state.refreshToken) {
-    // The user signed out (or signed in again) while the request was in
-    // flight. Writing these tokens would bring the ended session back, so drop
-    // them and revoke the pair the server has just issued.
-    publicClient
-      .post("/auth/logout", { refreshToken: tokens.refreshToken }, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      })
-      .catch((error: unknown) => {
-        console.warn("refresh: failed to revoke tokens of an ended session", error);
-      });
+  // The user may have signed out or signed in again while the request was in
+  // flight; writing these tokens would bring the ended session back. The check
+  // follows the source the refresh token was read from, and an unreadable
+  // keychain rejects the refresh. The dropped pair is not revoked on purpose:
+  // /auth/logout also clears the user's push token, which would silence SOS
+  // pushes for a session that has just signed in again.
+  const liveRefreshToken = authStore().getState().refreshToken;
+  const sessionUnchanged = state.refreshToken
+    ? liveRefreshToken === refreshToken
+    : liveRefreshToken === null &&
+      (await secureStorage.getTokens())?.refreshToken === refreshToken;
+  if (!sessionUnchanged) {
     throw new Error("session changed during token refresh");
   }
   // Store first, synchronously: nothing may read the rotated-out refresh token
@@ -109,7 +110,10 @@ const requestTokens = async (): Promise<AuthTokens | null> => {
     // The old token is already revoked server-side, so failing the refresh here
     // would only break a session that is valid in memory. revalidateSession
     // writes the live tokens again on the next foreground.
-    console.warn("refresh: failed to persist rotated tokens", error);
+    console.warn(
+      "refresh: failed to persist rotated tokens",
+      error instanceof Error ? error.message : "unknown error",
+    );
   }
   return tokens;
 };
