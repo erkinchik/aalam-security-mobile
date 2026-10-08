@@ -87,6 +87,19 @@ const requestTokens = async (): Promise<AuthTokens | null> => {
     refreshToken,
   });
   const tokens = response.data;
+  if (authStore().getState().refreshToken !== state.refreshToken) {
+    // The user signed out (or signed in again) while the request was in
+    // flight. Writing these tokens would bring the ended session back, so drop
+    // them and revoke the pair the server has just issued.
+    publicClient
+      .post("/auth/logout", { refreshToken: tokens.refreshToken }, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      })
+      .catch((error: unknown) => {
+        console.warn("refresh: failed to revoke tokens of an ended session", error);
+      });
+    throw new Error("session changed during token refresh");
+  }
   // Store first, synchronously: nothing may read the rotated-out refresh token
   // once this flight is over.
   authStore().getState().setTokens(tokens);
