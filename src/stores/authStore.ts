@@ -4,6 +4,7 @@ import { AuthTokens } from "../types/auth";
 import { UserProfile } from "../types/user";
 import { authApi } from "../api/modules/auth";
 import { usersApi } from "../api/modules/users";
+import { refreshSession } from "../api/client";
 import { secureStorage } from "./secureStorage";
 import { useUserSessionStore } from "./userSessionStore";
 import { useOperatorStore } from "./operatorStore";
@@ -65,7 +66,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isBootstrapped: false,
   isAuthenticated: false,
   bootstrap: async () => {
-    const tokens = await secureStorage.getTokens();
+    let tokens: AuthTokens | null;
+    let cachedUser: UserProfile | null;
+    try {
+      [tokens, cachedUser] = await Promise.all([
+        secureStorage.getTokens(),
+        secureStorage.getUser(),
+      ]);
+    } catch (error) {
+      // Unreadable is not the same as absent: leave storage alone so the next
+      // launch can still restore the session, and unblock the UI.
+      console.warn("bootstrap: failed to read the stored session", error);
+      set({ isBootstrapped: true });
+      return;
+    }
 
     // No stored session at all — go straight to the auth flow.
     if (!tokens?.refreshToken) {
@@ -78,7 +92,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Startup must never block on the network — a stale/dead connection after
     // long inactivity used to wedge /users/me forever and freeze the app on the
     // loading screen.
-    const cachedUser = await secureStorage.getUser();
     if (cachedUser) {
       set({
         ...toTokenState(tokens),
@@ -128,6 +141,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         current.accessToken && current.refreshToken
           ? { accessToken: current.accessToken, refreshToken: current.refreshToken }
           : tokens;
+      // Heals storage left behind by a rotation whose keychain write failed;
+      // otherwise the next cold start would present a revoked refresh token.
+      if (effectiveTokens.refreshToken !== tokens.refreshToken) {
+        await secureStorage.saveTokens(effectiveTokens);
+      }
       set({
         ...toTokenState(effectiveTokens),
         user: me,
@@ -137,29 +155,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       await useUserSessionStore.getState().hydrate();
       void queryClient.invalidateQueries({ queryKey: ["organizations"] });
-    } catch (error) {
-      if (isInvalidRefreshError(error)) {
-        // The session is genuinely invalid (refresh rejected) — sign out.
-        // Всё, что чистит обычный выход: иначе следующий пользователь на телефоне
-        // наследовал чужую тревогу, вызовы, точку и флаг подписки.
-        await Promise.allSettled([
-          secureStorage.clearTokens(),
-          secureStorage.clearUser(),
-          useUserSessionStore.getState().reset(),
-          useEmergencyStore.getState().reset(),
-        ]);
-        queryClient.clear();
-        useOperatorStore.getState().reset();
-        set({
-          accessToken: null,
-          refreshToken: null,
-          user: null,
-          role: null,
-          isAuthenticated: false,
-          isBootstrapped: true,
-        });
-        return;
-      }
+    } catch {
+      // No sign-out here. When the refresh token is really rejected the 401
+      // interceptor has already called logout(). A 401 reaching this point can
+      // also be /users/me rejected from the interceptor queue because the
+      // refresh failed on network/5xx/429 — wiping the session on that signed
+      // users out on a flaky connection.
       // Network error or timeout: keep any cached session intact and just make
       // sure the app is unblocked. We revalidate again on the next foreground.
       set({ isBootstrapped: true });
@@ -192,15 +193,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     void queryClient.invalidateQueries({ queryKey: ["organizations"] });
   },
   refresh: async () => {
-    const current = get();
-    if (!current.refreshToken) {
+    if (!get().refreshToken) {
       return false;
     }
     try {
-      const tokens = await authApi.refresh({ refreshToken: current.refreshToken });
-      await secureStorage.saveTokens(tokens);
-      set({ ...toTokenState(tokens), isAuthenticated: true });
-      return true;
+      return (await refreshSession()) !== null;
     } catch (error) {
       if (isInvalidRefreshError(error)) {
         await get().logout();

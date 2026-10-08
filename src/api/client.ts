@@ -73,7 +73,7 @@ const authStore = () => require("../stores/authStore").useAuthStore as {
   };
 };
 
-const refreshTokens = async (): Promise<AuthTokens | null> => {
+const requestTokens = async (): Promise<AuthTokens | null> => {
   const state = authStore().getState();
   const storedTokens = state.accessToken && state.refreshToken
     ? { accessToken: state.accessToken, refreshToken: state.refreshToken }
@@ -86,7 +86,35 @@ const refreshTokens = async (): Promise<AuthTokens | null> => {
   const response = await publicClient.post<AuthTokens>("/auth/refresh", {
     refreshToken,
   });
-  return response.data;
+  const tokens = response.data;
+  // Store first, synchronously: nothing may read the rotated-out refresh token
+  // once this flight is over.
+  authStore().getState().setTokens(tokens);
+  try {
+    await secureStorage.saveTokens(tokens);
+  } catch (error) {
+    // The old token is already revoked server-side, so failing the refresh here
+    // would only break a session that is valid in memory. revalidateSession
+    // writes the live tokens again on the next foreground.
+    console.warn("refresh: failed to persist rotated tokens", error);
+  }
+  return tokens;
+};
+
+let refreshInFlight: Promise<AuthTokens | null> | null = null;
+
+/**
+ * The only way to refresh the session. The server rotates the refresh token on
+ * every use, so two parallel refreshes with the same token end with the loser
+ * rejected as reuse and the user signed out. That happened whenever the 401
+ * interceptor overlapped with authStore.refresh() (socket "io server
+ * disconnect", useTokenRefresh timer) after a cold start or a long background.
+ */
+export const refreshSession = (): Promise<AuthTokens | null> => {
+  refreshInFlight ??= requestTokens().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 };
 
 apiClient.interceptors.request.use((config) => {
@@ -120,13 +148,11 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const tokens = await refreshTokens();
+        const tokens = await refreshSession();
         if (!tokens) {
           throw error;
         }
 
-        authStore().getState().setTokens(tokens);
-        await secureStorage.saveTokens(tokens);
         resolveQueue(tokens.accessToken);
         originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`;
         return apiClient(originalRequest);

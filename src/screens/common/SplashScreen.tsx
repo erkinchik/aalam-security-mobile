@@ -49,6 +49,9 @@ export const SplashScreen = ({ navigation }: Props) => {
   }, [navigation]);
 
   useEffect(() => {
+    // Wait for the stored session: going to Login first showed the login screen
+    // on every cold start and left the user there if the restore was slow.
+    if (!isBootstrapped || isAuthenticated) return;
     let cancelled = false;
     (async () => {
       const done = await AsyncStorage.getItem(ONBOARDING_KEY);
@@ -62,7 +65,7 @@ export const SplashScreen = ({ navigation }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [navigation]);
+  }, [isBootstrapped, isAuthenticated, navigation]);
 
   useEffect(() => {
     if (!isBootstrapped || !isAuthenticated || !user) return;
