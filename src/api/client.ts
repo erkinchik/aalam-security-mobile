@@ -90,15 +90,23 @@ const requestTokens = async (): Promise<AuthTokens | null> => {
   // The user may have signed out or signed in again while the request was in
   // flight; writing these tokens would bring the ended session back. The check
   // follows the source the refresh token was read from, and an unreadable
-  // keychain rejects the refresh. The dropped pair is not revoked on purpose:
-  // /auth/logout also clears the user's push token, which would silence SOS
-  // pushes for a session that has just signed in again.
+  // keychain rejects the refresh. The dropped pair is revoked via /auth/revoke
+  // and not /auth/logout: logout also clears the user's push token, which
+  // would silence SOS pushes for a session that has just signed in again.
   const liveRefreshToken = authStore().getState().refreshToken;
   const sessionUnchanged = state.refreshToken
     ? liveRefreshToken === refreshToken
     : liveRefreshToken === null &&
       (await secureStorage.getTokens())?.refreshToken === refreshToken;
   if (!sessionUnchanged) {
+    publicClient
+      .post("/auth/revoke", { refreshToken: tokens.refreshToken })
+      .catch((error: unknown) => {
+        console.warn(
+          "refresh: failed to revoke the dropped token pair",
+          error instanceof Error ? error.message : "unknown error",
+        );
+      });
     throw new Error("session changed during token refresh");
   }
   // Store first, synchronously: nothing may read the rotated-out refresh token
